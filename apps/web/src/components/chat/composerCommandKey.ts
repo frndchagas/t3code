@@ -17,7 +17,7 @@ import {
   composerSubmissionIntentForKey,
 } from "../../composer-logic";
 import { type PendingUserInput } from "../../session-logic";
-import { type PreviewAnnotationPayload } from "@t3tools/contracts";
+import { type PreviewAnnotationPayload, type PromptSuggestion } from "@t3tools/contracts";
 import { type ReviewCommentContext } from "../../reviewCommentContext";
 import { composerTargetKey } from "../../composerDraftStore";
 import { listContinuationForEnter, listIndentForTab } from "../../composer-list-continuation";
@@ -79,6 +79,8 @@ export function composerCommandKeyHandler(input: {
     dispatchMode: ComposerDispatchMode,
     submissionIntent: ComposerSubmissionIntent,
   ) => void;
+  readonly promptSuggestion: PromptSuggestion | null;
+  readonly onDismissPromptSuggestion: ChatComposerProps["onDismissPromptSuggestion"];
 }) {
   const {
     keybindings,
@@ -116,6 +118,8 @@ export function composerCommandKeyHandler(input: {
     readComposerSnapshot,
     applyPromptReplacement,
     submitComposer,
+    promptSuggestion,
+    onDismissPromptSuggestion,
   } = input;
 
   // The composer persists across threads. A recall from thread A must not
@@ -190,6 +194,29 @@ export function composerCommandKeyHandler(input: {
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive =
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
+    // Right Arrow or Tab fills the draft with the suggestion and never sends;
+    // Esc hides it.
+    if (
+      promptSuggestion !== null &&
+      promptRef.current.length === 0 &&
+      !menuIsActive &&
+      submissionIntent === null &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey
+    ) {
+      if (key === "ArrowRight" || key === "Tab") {
+        replacePromptFromHistory(promptSuggestion.text);
+        return true;
+      }
+      if (key === "Escape") {
+        onDismissPromptSuggestion(promptSuggestion.id);
+        return true;
+      }
+    }
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
       dismissComposerTrigger(trigger);

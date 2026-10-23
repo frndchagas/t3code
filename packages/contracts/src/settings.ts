@@ -731,25 +731,9 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
-    promptSuggestions: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(false)),
-      Schema.annotateKey({
-        title: "Prompt suggestions",
-        description:
-          "Suggest a next prompt in the empty composer after each turn. Press Right Arrow or Tab to use it.",
-        providerSettingsForm: { control: "switch" },
-      }),
-    ),
   },
   {
-    order: [
-      "binaryPath",
-      "homePath",
-      "autoCompactWindow",
-      "idleCompaction",
-      "promptSuggestions",
-      "launchArgs",
-    ],
+    order: ["binaryPath", "homePath", "autoCompactWindow", "idleCompaction", "launchArgs"],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
@@ -1298,6 +1282,12 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   reviewGuideInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  promptSuggestionsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /** Null uses the model of the thread being suggested for. */
+  promptSuggestionModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  promptSuggestionInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
 
   pullRequestMergeMethod: Schema.NullOr(PullRequestMergeMethod).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1618,6 +1608,9 @@ export const ServerSettingsPatch = Schema.Struct({
   reviewGuidesEnabled: Schema.optionalKey(Schema.Boolean),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
+  promptSuggestionsEnabled: Schema.optionalKey(Schema.Boolean),
+  promptSuggestionModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  promptSuggestionInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
   observability: Schema.optionalKey(
     Schema.Struct({

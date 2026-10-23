@@ -3809,8 +3809,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         "my-0 max-h-8 min-h-8 overflow-hidden py-0 whitespace-pre! leading-8",
                     )}
                     placeholderClassName={cn(
-                      isComposerResting &&
-                        "flex items-center overflow-hidden whitespace-nowrap leading-8",
+                      isComposerResting
+                        ? "flex items-center overflow-hidden whitespace-nowrap leading-8"
+                        : // A long suggestion stays inside the empty editor's height.
+                          promptSuggestion !== null && "line-clamp-3",
                     )}
                     onChange={onPromptChangeStable}
                     onVisibleSelectionChange={expandComposerForEditorChangeStable}

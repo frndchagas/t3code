@@ -54,6 +54,7 @@ import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { PromptSuggestionSettings } from "./PromptSuggestionSettings";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
   getCustomModelOptionsByInstance,
@@ -1905,6 +1906,7 @@ export function GeneralSettingsPanel() {
             )
           }
         />
+        <PromptSuggestionSettings />
       </SettingsSection>
 
       <SettingsSection id="about" title="About">

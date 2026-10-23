@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as PromptSuggestions from "../provider/PromptSuggestions.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -141,7 +142,14 @@ const withService = <A, E>(
       const service = yield* PromptSuggestionService.make;
       yield* service.start();
       return yield* body({ thread, events, requests, suggestions });
-    }).pipe(Effect.provide(Layer.merge(dependencies, PromptSuggestions.layer)));
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          dependencies,
+          PromptSuggestions.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
+        ),
+      ),
+    );
   }).pipe(Effect.scoped);
 
 const nextSuggestion = (suggestions: Suggestions, matches: (text: string | null) => boolean) =>
@@ -186,6 +194,26 @@ it.effect("withdraws the suggestion as soon as the next run starts", () =>
 
       const withdrawn = yield* nextSuggestion(suggestions, (text) => text === null);
       assert.isTrue(Option.isSome(withdrawn));
+    }),
+  ),
+);
+
+it.effect("clears the suggestion when its thread is deleted", () =>
+  withService(({ events, suggestions }) =>
+    Effect.gen(function* () {
+      yield* Queue.offer(events, runUpdated(FIRST_RUN));
+      yield* nextSuggestion(suggestions, (text) => text !== null);
+
+      yield* Queue.offer(events, {
+        type: "thread.deleted",
+        id: EventId.make("event:thread-deleted"),
+        threadId: THREAD_ID,
+        occurredAt: NOW,
+        payload: {} as never,
+      });
+
+      const cleared = yield* nextSuggestion(suggestions, (text) => text === null);
+      assert.isTrue(Option.isSome(cleared));
     }),
   ),
 );

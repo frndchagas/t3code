@@ -636,7 +636,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ),
   Layer.provideMerge(ProviderRegistry.layer),
   Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
-  Layer.provideMerge(PromptSuggestions.layer),
+  Layer.provideMerge(PromptSuggestions.layer.pipe(Layer.provide(layerPersistence))),
   Layer.provideMerge(
     Layer.mergeAll(
       AntigravityInstallation.AntigravityInstallation.layer,

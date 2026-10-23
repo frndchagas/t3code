@@ -100,9 +100,10 @@ export const make = Effect.gen(function* () {
     const requestedRuns = new Map<ThreadId, RunId>();
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) => {
-        if (event.type !== "run.updated") return Effect.void;
+        // Suggestions are stored, so a deleted thread must not leave one behind.
+        if (event.type !== "run.updated" && event.type !== "thread.deleted") return Effect.void;
         const threadId = event.threadId;
-        if (event.payload.status === "completed") {
+        if (event.type === "run.updated" && event.payload.status === "completed") {
           if (requestedRuns.get(threadId) === event.payload.id) return Effect.void;
           requestedRuns.set(threadId, event.payload.id);
           return FiberMap.run(generations, threadId, suggest(threadId, event.payload.id));

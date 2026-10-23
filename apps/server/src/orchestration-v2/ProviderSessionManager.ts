@@ -441,14 +441,10 @@ export const layerWithOptions = (
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const agentScope = yield* AgentScope;
       const installationGate = yield* ProviderInstallationGate.ProviderInstallationGate;
-      // Labs flag, read live: Codex per turn (its shared session outlives a toggle), Claude per query.
-      // Unreadable settings keep it off.
-      const promptSuggestionsEnabled = Option.isNone(serverSettings)
-        ? Effect.succeed(false)
-        : serverSettings.value.getSettings.pipe(
-            Effect.map((settings) => settings.promptSuggestionsEnabled),
-            Effect.orElseSucceed(() => false),
-          );
+      // The Labs flag turns on the suggestions T3 writes for every provider
+      // (PromptSuggestionService). Providers never predict their own, which
+      // would cost a second request per turn and race T3's suggestion.
+      const promptSuggestionsEnabled = Effect.succeed(false);
       const agentAccessSettings = Effect.fn("ProviderSessionManagerV2.agentAccessSettings")(
         function* (threadId: ThreadId) {
           if (Option.isNone(serverSettings)) return { browser: true, device: false };

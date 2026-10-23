@@ -30,7 +30,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 
 /**
  * The composer's key handling inside the editor: send shortcuts, the slash/mention menu,
- * prompt history on ArrowUp/ArrowDown, plan-mode toggle, prompt suggestions on Tab, and list continuation.
+ * prompt history on ArrowUp/ArrowDown, plan-mode toggle, prompt suggestions on Tab or Right Arrow, and list continuation.
  * Returns the editor's key handler; it reads the inputs captured by the render that built it.
  */
 export function composerCommandKeyHandler(input: {
@@ -82,7 +82,7 @@ export function composerCommandKeyHandler(input: {
     dispatchMode: ComposerDispatchMode,
     submissionIntent: ComposerSubmissionIntent,
   ) => void;
-  /** Predicted next prompt that Tab fills into an empty composer; Escape dismisses it. */
+  /** Predicted next prompt that Tab or Right Arrow fills into an empty composer; Escape dismisses it. */
   readonly promptSuggestion: string | null;
   readonly dismissPromptSuggestion: () => void;
 }) {
@@ -243,7 +243,7 @@ export function composerCommandKeyHandler(input: {
       }
     }
     if (
-      key === "Tab" &&
+      (key === "Tab" || key === "ArrowRight") &&
       promptSuggestion !== null &&
       promptRef.current.length === 0 &&
       !menuIsActive &&

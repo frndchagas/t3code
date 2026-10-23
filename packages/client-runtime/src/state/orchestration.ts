@@ -5,6 +5,7 @@ import {
   type OrchestrationV2ThreadLinkMetadata,
   type OrchestrationGetTurnDiffResult,
   type OrchestrationV2GetTurnItemInput,
+  WS_METHODS,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -180,6 +181,11 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
         idleTtlMs: 0,
       }),
     },
+    promptSuggestion: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:orchestration:prompt-suggestion",
+      tag: WS_METHODS.subscribePromptSuggestion,
+      idleTtlMs: 0,
+    }),
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnDiff,

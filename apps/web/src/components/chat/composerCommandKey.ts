@@ -18,7 +18,6 @@ import {
   composerSubmissionIntentForKey,
 } from "../../composer-logic";
 import { type PendingUserInput } from "../../session-logic";
-import { promptSuggestionToAccept } from "./usePromptSuggestion";
 import {
   type EnvironmentContextRecord,
   type PreviewAnnotationPayload,
@@ -36,9 +35,17 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 
 /**
  * The composer's key handling inside the editor: send shortcuts, the slash/mention menu,
- * prompt history on ArrowUp/ArrowDown, plan-mode toggle, prompt suggestions on Tab, and list continuation.
+ * prompt history on ArrowUp/ArrowDown, plan-mode toggle, prompt suggestions on Tab or Right Arrow, and list continuation.
  * Returns the editor's key handler; it reads the inputs captured by the render that built it.
  */
+/**
+ * The suggestion to insert when Tab or the hint accepts it. The hint unmounts a render after
+ * typing starts, so a late accept must not prepend the suggestion to a draft that has text.
+ */
+export function promptSuggestionToAccept(suggestion: string | null, draft: string): string | null {
+  return draft.length === 0 ? suggestion : null;
+}
+
 export function composerCommandKeyHandler(input: {
   readonly keybindings: ChatComposerProps["keybindings"];
   readonly getShortcutContext: ChatComposerProps["getShortcutContext"];
@@ -96,7 +103,7 @@ export function composerCommandKeyHandler(input: {
     dispatchMode: ComposerDispatchMode,
     submissionIntent: ComposerSubmissionIntent,
   ) => void;
-  /** Predicted next prompt that Tab fills into an empty composer; Escape dismisses it. */
+  /** Predicted next prompt that Tab or Right Arrow fills into an empty composer; Escape dismisses it. */
   readonly promptSuggestion: string | null;
   readonly dismissPromptSuggestion: () => void;
 }) {
@@ -268,7 +275,7 @@ export function composerCommandKeyHandler(input: {
     }
     const acceptedSuggestion = promptSuggestionToAccept(promptSuggestion, promptRef.current);
     if (
-      key === "Tab" &&
+      (key === "Tab" || key === "ArrowRight") &&
       acceptedSuggestion !== null &&
       !menuIsActive &&
       !event.shiftKey &&

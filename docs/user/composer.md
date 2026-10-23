@@ -155,8 +155,8 @@ replaces it.
 
 Suggestions work with every provider. Each one costs a model call, made with the thread's own model
 unless you choose a **Prompt suggestion model**. Use **Prompt suggestion instructions** to steer the
-language, length, or what to leave out. No suggestion appears when the thread does not make the next
-step clear.
+language, length, or what to leave out. When the agent finishes or waits for instructions, the
+suggestion is the likeliest next step the thread points to.
 
 ## Edit an earlier prompt
 

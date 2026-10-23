@@ -187,7 +187,11 @@ import { useThreadContextDrop, threadContextDropTargetProps } from "./threadCont
 import { readThreadShell } from "~/state/entities";
 import { useLinkedEnvironments } from "~/state/peerLinks";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import type { ComposerContextRecord, ThreadPullRequestLink } from "@t3tools/contracts";
+import type {
+  ComposerContextRecord,
+  PromptSuggestion,
+  ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import { threadContextAttachment } from "~/lib/threadContextAttachment";
 import {
   type ComposerCommandItem,
@@ -268,7 +272,6 @@ import {
 } from "./preparingComposerImages";
 import { ComposerControlsBar } from "./ComposerControlsBar";
 import { composerCommandKeyHandler } from "./composerCommandKey";
-import { usePromptSuggestion } from "./usePromptSuggestion";
 import { useFreshSessionArmed } from "./freshSessionArms";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
@@ -366,6 +369,8 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  promptSuggestion: PromptSuggestion | null;
+  onDismissPromptSuggestion: (id: string) => void;
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -2254,11 +2259,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const expandMobileComposerStable = useStableCallback(expandMobileComposer);
 
-  // Escape dismisses the suggestion so Tab moves focus again.
-  const { suggestion: promptSuggestion, dismiss: dismissPromptSuggestion } = usePromptSuggestion(
-    environmentId,
-    activeThread,
-  );
+  // The thread's latest suggestion, written in T3 for every provider. Escape dismisses it so
+  // Tab moves focus again.
+  const promptSuggestion = props.promptSuggestion?.text ?? null;
+  const dismissPromptSuggestion = () => {
+    if (props.promptSuggestion !== null) props.onDismissPromptSuggestion(props.promptSuggestion.id);
+  };
   // After /clear the next message starts a fresh session that cannot see what the suggestion refers to.
   const freshSessionArmed = useFreshSessionArmed(scopedThreadKey(routeThreadRef));
   // Offered only where the default placeholder would show, so it never hides a pending question.

@@ -204,7 +204,6 @@ import {
   backgroundWorkNotification,
 } from "@t3tools/provider-core/server/notification";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import * as PromptSuggestions from "../../provider/PromptSuggestions.ts";
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -681,7 +680,6 @@ export interface ClaudeAgentSdkLoggedQueryOptions {
   readonly settingKeys?: ReadonlyArray<string>;
   readonly effort?: ClaudeAgentSdkQueryOptions["effort"];
   readonly includePartialMessages?: true;
-  readonly promptSuggestions?: true;
   readonly pathToClaudeCodeExecutable?: ClaudeAgentSdkQueryOptions["pathToClaudeCodeExecutable"];
   readonly hasExtraArgs?: true;
   readonly allowDangerouslySkipPermissions?: true;
@@ -824,7 +822,6 @@ export function loggedClaudeQueryOptions(
       : {}),
     ...(options.effort === undefined ? {} : { effort: options.effort }),
     ...(options.includePartialMessages === true ? { includePartialMessages: true } : {}),
-    ...(options.promptSuggestions === true ? { promptSuggestions: true } : {}),
     ...(options.pathToClaudeCodeExecutable === undefined
       ? {}
       : { pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable }),
@@ -1551,7 +1548,6 @@ export function makeClaudeQueryOptions(input: {
         ? "bypassPermissions"
         : (input.permissionMode ?? "default")),
     includePartialMessages: true,
-    ...(input.settings?.promptSuggestions === true ? { promptSuggestions: true } : {}),
     ...(compiledSelection.effort === undefined
       ? {}
       : {
@@ -4489,7 +4485,6 @@ export interface ClaudeAdapterV2Options {
   readonly queryRunner: ClaudeAgentSdkQueryRunnerShape;
   readonly scopedLimitNames?: Ref.Ref<ClaudeScopedLimitNames>;
   readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
-  readonly promptSuggestions?: Pick<typeof PromptSuggestions.PromptSuggestions.Service, "publish">;
   readonly continuationRequests?: {
     readonly offer: (
       request: ProviderContinuationRequests.ProviderContinuationRequest,
@@ -4511,7 +4506,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   const continuationRequests = adapterOptions.continuationRequests ?? {
     offer: () => Effect.void,
   };
-  const promptSuggestions = adapterOptions.promptSuggestions ?? { publish: () => Effect.void };
   const homePath = yield* resolveClaudeHomePath(
     adapterOptions.settings,
     adapterOptions.environment,
@@ -4819,19 +4813,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const subagentToolCalls = new Map<string, ActiveClaudeToolCall>();
         const pendingSubagentLaunchesByToolUseId = new Map<string, PendingClaudeSubagentLaunch>();
         const settledTurnByNativeThread = new Map<string, ActiveClaudeTurnContext>();
-        // Native threads whose last turn completed with nothing after it yet.
-        // Only these may take the prompt suggestion that follows a `result`.
-        const promptSuggestionEligibleNativeThreads = new Set<string>();
-        // The app thread each native thread's published suggestion belongs to;
-        // one session can serve several app threads.
-        const promptSuggestionThreadByNativeThread = new Map<string, ThreadId>();
-        const revokePromptSuggestion = Effect.fnUntraced(function* (nativeThreadId: string) {
-          promptSuggestionEligibleNativeThreads.delete(nativeThreadId);
-          const threadId = promptSuggestionThreadByNativeThread.get(nativeThreadId);
-          if (threadId === undefined) return;
-          promptSuggestionThreadByNativeThread.delete(nativeThreadId);
-          yield* promptSuggestions.publish(threadId, null);
-        });
         const subagentStopOutcomes = new Map<
           string,
           Deferred.Deferred<ProviderAdapter.ProviderAdapterV2SubagentOutcome>
@@ -7651,10 +7632,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           );
           if (input.status === "completed") {
             settledTurnByNativeThread.set(input.context.nativeThreadId, input.context);
-            promptSuggestionEligibleNativeThreads.add(input.context.nativeThreadId);
           } else {
             settledTurnByNativeThread.delete(input.context.nativeThreadId);
-            promptSuggestionEligibleNativeThreads.delete(input.context.nativeThreadId);
           }
           yield* Ref.update(interruptedTurns, (current) => {
             const next = new Set(current);
@@ -8201,27 +8180,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               current.has(message.task_id) ? current : new Set(current).add(message.task_id),
             );
           }
-          if (message.type === "prompt_suggestion") {
-            // Follows the turn's `result`, so it belongs to the last completed
-            // turn, unless another turn or a background wake came after it.
-            const nativeThreadId = liveQuery.nativeThreadId;
-            const settled = settledTurnByNativeThread.get(nativeThreadId);
-            const text = message.suggestion.trim();
-            if (
-              settled !== undefined &&
-              text.length > 0 &&
-              promptSuggestionEligibleNativeThreads.has(nativeThreadId) &&
-              (yield* Ref.get(activeTurn)) === null
-            ) {
-              promptSuggestionThreadByNativeThread.set(nativeThreadId, settled.input.threadId);
-              yield* promptSuggestions.publish(settled.input.threadId, {
-                id: message.uuid,
-                runId: settled.input.runId,
-                text,
-              });
-            }
-            return;
-          }
           if (message.type === "rate_limit_event") {
             const rateLimitInfo = message.rate_limit_info;
             if (!rateLimitInfo) return;
@@ -8312,15 +8270,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             (yield* Ref.get(activeTurn)) ??
             (yield* settledTurnForSubagentFrame(liveQuery.nativeThreadId, message));
           if (context === null) {
-            // A root turn with no T3 turn is a background wake, which outdates
-            // the current suggestion and any that follows it.
-            if (
-              isClaudeTurnStartMessage(message) ||
-              message.type === "result" ||
-              (message.type === "assistant" && !message.parent_tool_use_id)
-            ) {
-              yield* revokePromptSuggestion(liveQuery.nativeThreadId);
-            }
             yield* applyWorkflowProgressWithoutTurn(message);
             // Buffer wake evidence before clearing the task from the roster.
             if (message.type === "system" && message.subtype === "task_notification") {
@@ -10421,8 +10370,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           function* (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) {
             const startedAt = yield* DateTime.now;
             const nativeThreadId = yield* getNativeThreadId(turnInput.providerThread);
-            yield* revokePromptSuggestion(nativeThreadId);
-            yield* promptSuggestions.publish(turnInput.threadId, null);
             const nativeTurnId = `turn:${turnInput.attemptId}`;
             // Use fresh uuids: native sessions can outlive this database, and Claude skips previously recorded prompts.
             const promptUuid = isClaudeProviderContinuationTurn(turnInput)
@@ -10983,12 +10930,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         );
 
         const closeSession = Effect.fnUntraced(function* () {
-          yield* Effect.forEach(
-            [...promptSuggestionThreadByNativeThread.keys()],
-            revokePromptSuggestion,
-            { discard: true },
-          );
-          promptSuggestionEligibleNativeThreads.clear();
           const existing = yield* Ref.get(queryContext);
           if (existing !== null) {
             yield* existing.query.close.pipe(Effect.ignore);
@@ -11395,8 +11336,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               }
 
               const nativeThreadId = yield* getNativeThreadId(rollbackInput.providerThread);
-              // The suggestion followed a turn the rollback discards.
-              yield* revokePromptSuggestion(nativeThreadId);
               yield* closeLiveQueryForNativeThread(nativeThreadId);
               const now = yield* DateTime.now;
               const resumeSessionAt = yield* resolveClaudeRollbackResumeSessionAt(rollbackInput);
@@ -11574,7 +11513,6 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const queryRunner = yield* ClaudeAgentSdkQueryRunner;
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
-    const promptSuggestions = yield* PromptSuggestions.PromptSuggestions;
     const baseEnvironment = yield* mergeProviderInstanceEnvironment(environment, hostEnvironment);
     const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
     const path = yield* Path.Path;
@@ -11594,7 +11532,6 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
       idAllocator,
       queryRunner,
       continuationRequests,
-      promptSuggestions,
       ...hooks,
     });
   },

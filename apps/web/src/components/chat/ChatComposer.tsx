@@ -3377,6 +3377,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     importContextFragment={importContextFragmentStable}
                     skills={selectedProviderSkills}
                     className={cn(showMobilePendingAnswerActions && "max-sm:pb-12")}
+                    // A long suggestion stays inside the empty editor's height.
+                    placeholderClassName={cn(promptSuggestion !== null && "line-clamp-3")}
                     onChange={onPromptChangeStable}
                     onCommandKeyDown={onComposerCommandKeyStable}
                     onPageScrollKeyDown={onPageScrollKeyDown}

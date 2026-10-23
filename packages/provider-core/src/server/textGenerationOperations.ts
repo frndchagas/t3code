@@ -10,12 +10,14 @@ import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  buildPromptSuggestionPrompt,
   buildReviewGuidePrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
+  sanitizePromptSuggestion,
   sanitizeThreadTitle,
 } from "./textGenerationUtils.ts";
 
@@ -194,6 +196,21 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generatePromptSuggestion: ProviderTextGeneration["generatePromptSuggestion"] = Effect.fn(
+    `${name}.generatePromptSuggestion`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "generatePromptSuggestion",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildPromptSuggestionPrompt({
+        conversation: input.conversation,
+        instructions: input.instructions,
+      }),
+    });
+    return { suggestion: sanitizePromptSuggestion(generated.suggestion) };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -201,5 +218,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateThreadTitle,
     generateReviewGuide,
     generateTranscriptionPostProcessing,
+    generatePromptSuggestion,
   } satisfies ProviderTextGeneration;
 }

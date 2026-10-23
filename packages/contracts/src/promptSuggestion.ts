@@ -4,8 +4,8 @@ import { RunId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * A model's guess at the user's next prompt after a completed run, written from
- * the thread. The server keeps only the latest one per thread, in memory: it is
- * never persisted, is cleared when the next run starts, and is gone after a restart.
+ * the thread. The server stores only the latest one per thread, keeps it across
+ * restarts, and clears it when the next run starts.
  */
 export const PromptSuggestion = Schema.Struct({
   /** Stable for one suggestion, so a client can remember that the user dismissed it. */

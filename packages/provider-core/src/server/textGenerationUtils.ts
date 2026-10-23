@@ -118,3 +118,29 @@ export function normalizeCliError(
     cause: error,
   });
 }
+
+// Longer than a few sentences reads as a plan, not a message the user would send as is.
+const MAX_PROMPT_SUGGESTION_CHARS = 1_000;
+const WRAPPING_QUOTES: ReadonlyArray<readonly [string, string]> = [
+  ['"', '"'],
+  ["'", "'"],
+  ["`", "`"],
+  ["“", "”"],
+  ["‘", "’"],
+];
+
+export function sanitizePromptSuggestion(raw: string): string | null {
+  let suggestion = raw.trim();
+  // Unwrap only a quote pair around the whole reply, so a quoted name at the end survives.
+  const wrapper = WRAPPING_QUOTES.find(
+    ([open, close]) =>
+      suggestion.length > 1 &&
+      suggestion.startsWith(open) &&
+      suggestion.endsWith(close) &&
+      !suggestion.slice(1, -1).includes(open),
+  );
+  if (wrapper) suggestion = suggestion.slice(1, -1).trim();
+  return suggestion.length === 0 || suggestion.length > MAX_PROMPT_SUGGESTION_CHARS
+    ? null
+    : suggestion;
+}

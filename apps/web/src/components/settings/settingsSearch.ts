@@ -635,6 +635,30 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
   },
   {
+    id: "prompt-suggestions",
+    title: "Prompt suggestions",
+    to: "/settings/threads",
+    searchTerms: ["next message prompt suggestion ghost text autocomplete composer tab predict"],
+    environmentOnly: true,
+  },
+  {
+    id: "prompt-suggestion-model",
+    title: "Prompt suggestion model",
+    to: "/settings/threads",
+    // Hidden until suggestions are on, so a search lands on the switch that shows it.
+    targetId: "prompt-suggestions",
+    searchTerms: ["next message prompt suggestion model provider"],
+    environmentOnly: true,
+  },
+  {
+    id: "prompt-suggestion-instructions",
+    title: "Prompt suggestion instructions",
+    to: "/settings/threads",
+    targetId: "prompt-suggestions",
+    searchTerms: ["next message prompt suggestion preferences language custom"],
+    environmentOnly: true,
+  },
+  {
     id: "app-version",
     title: "Version",
     to: "/settings/about",

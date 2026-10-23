@@ -978,6 +978,23 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("generated thread titles prompt custom style naming rename regenerate")],
   },
   {
+    id: "prompt-suggestion-model",
+    title: msg("Prompt suggestion model"),
+    to: "/settings/labs",
+    // Hidden until suggestions are on, so a search lands on the switch that shows it.
+    targetId: "prompt-suggestions-beta",
+    searchTerms: [msg("next message prompt suggestion model provider")],
+    environmentOnly: true,
+  },
+  {
+    id: "prompt-suggestion-instructions",
+    title: msg("Prompt suggestion instructions"),
+    to: "/settings/labs",
+    targetId: "prompt-suggestions-beta",
+    searchTerms: [msg("next message prompt suggestion preferences language custom")],
+    environmentOnly: true,
+  },
+  {
     id: "app-version",
     title: msg("Version"),
     to: "/settings/about",

@@ -93,11 +93,15 @@ Press `ArrowUp` in an empty composer to cycle backward through earlier prompts i
 
 ## Suggested next prompt
 
-Enable **Settings → Labs → Suggest next prompt** (web and desktop) to show a predicted next message in the empty composer after a Claude or Codex turn completes.
+Turn on **Suggest next prompt** in Settings > Labs to have T3 Code suggest your next message after
+each reply. A model reads the thread and writes the message you would most likely send next, and on
+web and desktop it appears in the empty composer. Press `Tab` or `ArrowRight` to fill it in, then
+edit or send it, or press `Escape` to dismiss it. The next run in the thread replaces it.
 
-- Press `Tab` to accept or `Escape` to dismiss.
-- Each suggestion uses one cached request against your plan's usage. Claude skips suggestions on the first turn and near usage limits.
-- Codex requires CLI version 0.165+ (update in **Settings → Providers**). Open Claude threads pick up the setting after restarting.
+Suggestions work with every provider. Each one costs a model call, made with the thread's own model
+unless you choose a **Prompt suggestion model**. Use **Prompt suggestion instructions** to steer the
+language, length, or what to leave out. No suggestion appears when the thread does not make the next
+step clear.
 
 ## Edit an earlier prompt
 

@@ -16,6 +16,7 @@ import { NumberField, NumberFieldGroup, NumberFieldInput } from "../ui/number-fi
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { commitNumberFieldOnEnter } from "./commitNumberFieldOnEnter";
+import { PromptSuggestionSettings } from "./PromptSuggestionSettings";
 import { ScopedSwitch } from "./ScopedSwitch";
 import {
   SettingResetButton,
@@ -45,6 +46,7 @@ export function LabsSettingsPanel() {
         <WorkflowsRow />
         <WorkflowSkippedRunsRow />
         <PromptSuggestionsRow />
+        <PromptSuggestionSettings />
         <SimlockHostsRow />
         <FastWorktreeCheckoutRow />
         <AgentFeedbackRow />
@@ -300,7 +302,7 @@ function PromptSuggestionsRow() {
       {...searchableSetting("prompt-suggestions-beta")}
       settingKeys={["promptSuggestionsEnabled"]}
       description={gt(
-        "Show a predicted next message in the empty composer after a Claude or Codex turn. Tab uses it. Each is an extra cached request on your plan. Needs Codex 0.165+. Claude threads update on restart.",
+        "After each reply, a model reads the thread and suggests your next message in the empty composer, for every provider. Tab or Right Arrow uses it, Esc hides it. Costs one extra model call per reply.",
       )}
       control={
         <ScopedSwitch

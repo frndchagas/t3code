@@ -3,9 +3,9 @@ import * as Schema from "effect/Schema";
 import { RunId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
- * The provider's guess at the user's next prompt after a completed turn. The
- * server keeps only the latest one per thread, in memory: it is never persisted,
- * is replaced or cleared when the next turn starts, and is gone after a restart.
+ * A model's guess at the user's next prompt after a completed run, written from
+ * the thread. The server keeps only the latest one per thread, in memory: it is
+ * never persisted, is cleared when the next run starts, and is gone after a restart.
  */
 export const PromptSuggestion = Schema.Struct({
   /** Stable for one suggestion, so a client can remember that the user dismissed it. */

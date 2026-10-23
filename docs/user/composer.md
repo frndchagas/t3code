@@ -151,8 +151,8 @@ into a normal draft.
 Turn on **Settings → Threads → Prompt suggestions** to have T3 Code suggest your next message after
 each reply. A model reads the thread and writes the message you would most likely send next, and on
 web and desktop it appears in the empty composer. Press `ArrowRight` or `Tab` to put it in the
-composer, where you can edit it before sending, or `Escape` to hide it. The next run in the thread
-replaces it.
+composer, where you can edit it before sending, or `Escape` to hide it. The suggestion stays after
+you close and reopen T3 Code; the next run in the thread replaces it.
 
 Suggestions work with every provider. Each one costs a model call, made with the thread's own model
 unless you choose a **Prompt suggestion model**. Use **Prompt suggestion instructions** to steer the

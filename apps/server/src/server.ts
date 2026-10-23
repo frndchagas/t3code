@@ -651,7 +651,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Provider hydration builds the Claude runner, which reports agents to the same scanner the
   // terminal and preview layers share.
   Layer.provideMerge(layerPortScanner),
-  Layer.provideMerge(PromptSuggestions.layer),
+  Layer.provideMerge(PromptSuggestions.layer.pipe(Layer.provide(layerPersistence))),
   Layer.provideMerge(
     Layer.mergeAll(
       AntigravityInstallation.AntigravityInstallation.layer,

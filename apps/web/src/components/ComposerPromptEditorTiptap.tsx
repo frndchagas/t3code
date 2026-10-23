@@ -162,7 +162,7 @@ export interface ComposerPromptEditorProps {
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
   placeholder: string;
-  /** Shown after the placeholder text, such as the key that uses a suggestion. */
+  /** Shown before the placeholder text, such as the key that uses a suggestion. */
   placeholderHint?: ReactNode | undefined;
   ariaLabel?: string | undefined;
   suggestionListId?: string | undefined;
@@ -1789,10 +1789,10 @@ function ComposerPromptEditorTiptapInner(
                   placeholderClassName,
                 )}
               >
-                {placeholder}
                 {placeholderHint ? (
-                  <span className="ms-2 inline-flex align-middle">{placeholderHint}</span>
+                  <span className="me-2 inline-flex align-middle">{placeholderHint}</span>
                 ) : null}
+                {placeholder}
               </div>
             ) : null}
           </div>

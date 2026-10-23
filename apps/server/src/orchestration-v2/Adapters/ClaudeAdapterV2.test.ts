@@ -37,6 +37,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2ProviderThread,
   ProjectId,
+  type PromptSuggestion,
   ProviderInstanceId,
   type ProviderInstanceEnvironment,
   ProviderDriverKind,
@@ -117,6 +118,9 @@ beforeEach(() => {
 });
 
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
+const PROMPT_SUGGESTIONS_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({
+  promptSuggestions: true,
+});
 const AUTO_COMPACT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({
   autoCompactWindow: "300000",
 });
@@ -335,6 +339,20 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       allowedTools: ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
       installPermissionCallback: false,
     });
+  });
+
+  it("asks the SDK for prompt suggestions only when the setting is on", () => {
+    const optionsFor = (settings: ClaudeSettings) =>
+      ClaudeAdapterV2.makeClaudeQueryOptions({
+        modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+        nativeThreadId: "native-thread-prompt-suggestions",
+        resume: false,
+        cwd: "/workspace",
+        settings,
+      });
+
+    assert.isUndefined(optionsFor(DEFAULT_CLAUDE_SETTINGS).promptSuggestions);
+    assert.isTrue(optionsFor(PROMPT_SUGGESTIONS_CLAUDE_SETTINGS).promptSuggestions);
   });
 
   it("does not auto-allow reads for canonical restricted read-only never policy", () => {
@@ -2149,6 +2167,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     readonly nativeSessionId?: string;
     readonly settings?: ClaudeSettings;
     readonly freshQueueOnReopen?: boolean;
+    readonly promptSuggestions?: ClaudeAdapterV2.ClaudeAdapterV2Options["promptSuggestions"];
     readonly forkSession?: ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerShape["forkSession"];
     readonly allocateSessionId?: Effect.Effect<string>;
   }) =>
@@ -2218,6 +2237,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
               Effect.andThen(changes.notify),
             ),
         },
+        ...(options?.promptSuggestions === undefined
+          ? {}
+          : { promptSuggestions: options.promptSuggestions }),
         queryRunner: {
           allocateSessionId:
             options?.allocateSessionId ??
@@ -3628,6 +3650,177 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       yield* Queue.take(harness.terminalReceipts);
       assert.lengthOf(notices(), 3);
       assert.notEqual(notices()[0]?.id, notices()[2]?.id);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  const promptSuggestionFrame = claudeSdkFrame({
+    type: "prompt_suggestion",
+    suggestion: "  Add a regression test for the sidebar.  ",
+    uuid: "00000000-0000-4000-8000-000000000701",
+    session_id: WAKE_NATIVE_SESSION,
+  });
+
+  const makePromptSuggestionHarness = Effect.gen(function* () {
+    const published: Array<readonly [ThreadId, PromptSuggestion | null]> = [];
+    const harness = yield* makeWakeHarnessWithOptions({
+      close: (sdkMessages) => Queue.shutdown(sdkMessages),
+      promptSuggestions: {
+        publish: (threadId, suggestion) =>
+          Effect.sync(() => {
+            published.push([threadId, suggestion]);
+          }),
+      },
+    });
+    const now = yield* DateTime.now;
+    const startTurn = Effect.fnUntraced(function* (
+      ordinal: number,
+      threadId: ThreadId = harness.threadId,
+    ) {
+      const input = makeClaudeTestTurnInput({
+        threadId,
+        providerThread: harness.providerThread,
+        now,
+        attemptId: RunAttemptId.make(`attempt-claude-suggestion-${ordinal}`),
+        providerTurnOrdinal: ordinal,
+        text: "Fix the sidebar.",
+        attachments: [],
+      });
+      yield* harness.runtime.startTurn(input);
+      return input;
+    });
+    const completeTurn = Effect.fnUntraced(function* (
+      ordinal: number,
+      threadId: ThreadId = harness.threadId,
+    ) {
+      const input = yield* startTurn(ordinal, threadId);
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({
+          uuid: `00000000-0000-4000-8000-00000000070${ordinal + 1}`,
+          result: "Done.",
+        }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+      return input;
+    });
+    const publishedSuggestions = () => published.filter(([, suggestion]) => suggestion !== null);
+    return { harness, published, publishedSuggestions, startTurn, completeTurn };
+  });
+
+  it.effect("publishes Claude's suggestion after a completed turn until the next turn starts", () =>
+    Effect.gen(function* () {
+      const { harness, published, completeTurn } = yield* makePromptSuggestionHarness;
+      const first = yield* completeTurn(1);
+      yield* harness.offerAndWait(promptSuggestionFrame);
+      assert.deepEqual(published.at(-1), [
+        harness.threadId,
+        {
+          id: "00000000-0000-4000-8000-000000000701",
+          runId: first.runId,
+          text: "Add a regression test for the sidebar.",
+        },
+      ]);
+      yield* completeTurn(2);
+      assert.deepEqual(published.at(-1), [harness.threadId, null]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("drops a suggestion that arrives once the next turn has started", () =>
+    Effect.gen(function* () {
+      const { harness, publishedSuggestions, startTurn, completeTurn } =
+        yield* makePromptSuggestionHarness;
+      yield* completeTurn(1);
+      yield* startTurn(2);
+      yield* harness.offerAndWait(promptSuggestionFrame);
+      assert.lengthOf(publishedSuggestions(), 0);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("clears a suggestion for another app thread of the session on rollback", () =>
+    Effect.gen(function* () {
+      const { harness, published, completeTurn } = yield* makePromptSuggestionHarness;
+      const otherThreadId = ThreadId.make("thread-claude-suggestion-other");
+      yield* completeTurn(1, otherThreadId);
+      yield* harness.offerAndWait(promptSuggestionFrame);
+      assert.equal(published.at(-1)?.[0], otherThreadId);
+      yield* harness.runtime.rollbackThread({
+        providerThread: harness.providerThread,
+        providerThreadTurns: [],
+        target: {
+          type: "thread_start",
+          checkpointId: CheckpointId.make("checkpoint-claude-suggestion-other-rollback"),
+          appRunOrdinal: 0,
+        },
+      });
+      assert.deepEqual(published.at(-1), [otherThreadId, null]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("clears the suggestion when the thread rolls back", () =>
+    Effect.gen(function* () {
+      const { harness, published, publishedSuggestions, completeTurn } =
+        yield* makePromptSuggestionHarness;
+      yield* completeTurn(1);
+      yield* harness.offerAndWait(promptSuggestionFrame);
+      assert.lengthOf(publishedSuggestions(), 1);
+      yield* harness.runtime.rollbackThread({
+        providerThread: harness.providerThread,
+        providerThreadTurns: [],
+        target: {
+          type: "thread_start",
+          checkpointId: CheckpointId.make("checkpoint-claude-suggestion-rollback"),
+          appRunOrdinal: 0,
+        },
+      });
+      assert.deepEqual(published.at(-1), [harness.threadId, null]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("clears the suggestion when a background wake starts and offers none after it", () =>
+    Effect.gen(function* () {
+      const { harness, published, publishedSuggestions, completeTurn } =
+        yield* makePromptSuggestionHarness;
+      yield* completeTurn(1);
+      yield* harness.offerAndWait(promptSuggestionFrame);
+      assert.lengthOf(publishedSuggestions(), 1);
+      yield* harness.offerAndWait(wakeTurnInit);
+      assert.deepEqual(published.at(-1), [harness.threadId, null]);
+      yield* harness.offerAndWait(
+        makeAssistantTextFrame({
+          uuid: "00000000-0000-4000-8000-000000000711",
+          text: "The background task finished.",
+        }),
+      );
+      assert.deepEqual(published.at(-1), [harness.threadId, null]);
+      yield* harness.offerAndWait(
+        claudeSdkFrame({
+          type: "prompt_suggestion",
+          suggestion: "Check the test results.",
+          uuid: "00000000-0000-4000-8000-000000000712",
+          session_id: WAKE_NATIVE_SESSION,
+        }),
+      );
+      assert.lengthOf(publishedSuggestions(), 1);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

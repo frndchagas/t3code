@@ -187,7 +187,11 @@ import { rememberCopiedComposerAttachments } from "~/lib/copiedComposerAttachmen
 import { useThreadContextDrop, threadContextDropTargetProps } from "./threadContextDrag";
 import { readThreadShell } from "~/state/entities";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import type { ComposerContextRecord, ThreadPullRequestLink } from "@t3tools/contracts";
+import type {
+  ComposerContextRecord,
+  PromptSuggestion,
+  ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import { threadContextAttachment } from "~/lib/threadContextAttachment";
 import {
   type ComposerCommandItem,
@@ -223,6 +227,7 @@ import {
   type ExpandedImagePreview,
 } from "./ExpandedImagePreview";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
+import { Kbd } from "../ui/kbd";
 import {
   getComposerPromptLengthValidationMessage,
   getComposerSubmissionValidationMessage,
@@ -400,6 +405,8 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  promptSuggestion: PromptSuggestion | null;
+  onDismissPromptSuggestion: (id: string) => void;
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -1249,6 +1256,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isComposerApprovalState ||
     pendingUserInputs.length > 0 ||
     (!isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan !== null);
+  // Ghost text for an idle, empty composer that nothing else is asking for.
+  const promptSuggestion =
+    props.promptSuggestion !== null &&
+    phase === "ready" &&
+    canOperateThread &&
+    !isSendBusy &&
+    !showComposerTopDrawer &&
+    !isComposerCollapsedMobile &&
+    !isTasksDrawerOpen &&
+    prompt.length === 0 &&
+    !composerSendState.hasSendableContent
+      ? props.promptSuggestion
+      : null;
   const showCollapsedMobilePromptRow = isComposerCollapsedMobile;
   const showComposerAttachAction =
     fileStagingLimit !== null &&
@@ -2279,6 +2299,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     readComposerSnapshot,
     applyPromptReplacement,
     submitComposer,
+    promptSuggestion,
+    onDismissPromptSuggestion: props.onDismissPromptSuggestion,
   });
 
   const {
@@ -3814,8 +3836,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
-                                  : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                                  : (promptSuggestion?.text ??
+                                    "Ask anything, @tag files/folders, $use skills, or / for commands")
                     }
+                    placeholderHint={promptSuggestion !== null ? <Kbd>→</Kbd> : undefined}
                     disabled={
                       isConnecting ||
                       projectSelectionRequired ||

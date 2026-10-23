@@ -274,8 +274,9 @@ import { type TerminalContextDraft } from "../lib/terminalContext";
 import { collectInlineContextIds } from "../lib/composerContextReferences";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
-import { useEnvironmentQueryRefresh } from "../state/query";
+import { useEnvironmentQuery, useEnvironmentQueryRefresh } from "../state/query";
 import { revisionedQuery } from "../state/revisionedQuery";
+import { orchestrationEnvironment } from "../state/orchestration";
 import { useEnvironmentScope } from "~/state/session";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../state/server";
 import { hostEnvironmentIdAtom } from "../state/primaryEnvironment";
@@ -443,7 +444,6 @@ import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplat
 const EMPTY_FEEDBACK_SUBMISSIONS: ReadonlyArray<CodexFeedbackSubmission> = [];
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_TURN_ITEMS: ThreadStructure["turnItems"] = [];
-const EMPTY_RUNS: ThreadStructure["runs"] = [];
 const EMPTY_AUTO_UPDATE_ENVIRONMENTS: ReadonlyArray<EnvironmentPresentation> = [];
 const EMPTY_COMPOSER_BANNER_ITEMS: ReadonlyArray<ComposerBannerStackItem> = [];
 
@@ -1748,6 +1748,42 @@ export default function ChatView(props: ChatViewProps) {
     followUpSent: timelineMessages.filter((message) => message.role === "user").length > 1,
   });
   const onCancelWorktreeSetupStable = useStableCallback(() => void cancelWorktreeSetup());
+  // Off unless the thread's provider instance turned prompt suggestions on.
+  const promptSuggestionInstanceId =
+    activeRuntime?.providerInstanceId ?? activeThread?.modelSelection.instanceId;
+  const promptSuggestionInstanceConfig =
+    promptSuggestionInstanceId === undefined
+      ? undefined
+      : settings.providerInstances[promptSuggestionInstanceId]?.config;
+  const promptSuggestionsEnabled =
+    promptSuggestionInstanceConfig !== null &&
+    typeof promptSuggestionInstanceConfig === "object" &&
+    (promptSuggestionInstanceConfig as Record<string, unknown>).promptSuggestions === true;
+  const promptSuggestionQuery = useEnvironmentQuery(
+    isServerThread && promptSuggestionsEnabled
+      ? orchestrationEnvironment.promptSuggestion({
+          environmentId: routeThreadRef.environmentId,
+          input: { threadId: routeThreadRef.threadId },
+        })
+      : null,
+  );
+  const [dismissedPromptSuggestionIds, setDismissedPromptSuggestionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const dismissPromptSuggestion = (id: string) =>
+    setDismissedPromptSuggestionIds((current) => new Set(current).add(id));
+  const latestPromptSuggestion = promptSuggestionQuery.data ?? null;
+  // Tied to the completed run it follows and to its provider instance, so a
+  // rollback, a later run, or picking another provider hides it.
+  const promptSuggestion =
+    latestRunSettled &&
+    activeLatestRun?.status === "completed" &&
+    selectedProviderEntry?.instanceId === promptSuggestionInstanceId &&
+    latestPromptSuggestion !== null &&
+    latestPromptSuggestion.runId === activeLatestRun?.runId &&
+    !dismissedPromptSuggestionIds.has(latestPromptSuggestion.id)
+      ? latestPromptSuggestion
+      : null;
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroDockRequested =
     activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
@@ -3905,7 +3941,6 @@ export default function ChatView(props: ChatViewProps) {
                                 draftId={draftId}
                                 activeThreadId={activeThreadId}
                                 activeThread={activeThread}
-                                activeThreadRuns={serverProjection?.runs ?? EMPTY_RUNS}
                                 promptHistoryEntries={timelineEntries}
                                 forceExpandedOnMobile={
                                   forceExpandedMobileComposer && isDraftHeroState
@@ -3946,6 +3981,8 @@ export default function ChatView(props: ChatViewProps) {
                                     ? EMPTY_COMPOSER_BANNER_ITEMS
                                     : composerBannerItems
                                 }
+                                promptSuggestion={promptSuggestion}
+                                onDismissPromptSuggestion={dismissPromptSuggestion}
                                 resumeCompactionTokens={resumeCompactionTokens}
                                 keepFullHistory={keepFullHistory}
                                 onToggleKeepFullHistory={toggleKeepFullHistoryStable}

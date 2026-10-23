@@ -106,7 +106,7 @@ export interface PromptSuggestionGenerationInput {
 }
 
 export interface PromptSuggestionGenerationResult {
-  /** Null when the user's next message is not predictable enough to suggest. */
+  /** Null when the thread gives no basis for a next message, or the reply is unusable. */
   suggestion: string | null;
 }
 

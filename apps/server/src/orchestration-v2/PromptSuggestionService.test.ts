@@ -48,6 +48,7 @@ interface TestThread {
     readonly role: "user" | "assistant";
     readonly text: string;
     readonly createdBy: "user" | "agent" | "system";
+    readonly createdAt: DateTime.Utc;
   }>;
 }
 
@@ -94,11 +95,17 @@ const withService = <A, E>(
     const thread: TestThread = {
       runs: [{ ...FIRST_RUN }],
       messages: [
-        { role: "user", text: "fix the flaky checkout test", createdBy: "user" },
+        {
+          role: "user",
+          text: "fix the flaky checkout test",
+          createdBy: "user",
+          createdAt: DateTime.subtract(NOW, { minutes: 3 }),
+        },
         {
           role: "assistant",
           text: "Fixed it. Want me to run the whole suite?",
           createdBy: "agent",
+          createdAt: DateTime.subtract(NOW, { minutes: 1 }),
         },
       ],
     };
@@ -178,6 +185,25 @@ it.effect("suggests the next message from the thread when a run completes", () =
         instanceId: THREAD_MODEL.instanceId,
         model: THREAD_MODEL.model,
       });
+    }),
+  ),
+);
+
+it.effect("suggests after a background notice that the projection lists last", () =>
+  withService(({ thread, events, requests, suggestions }) =>
+    Effect.gen(function* () {
+      // Background notices have no turn item, so the projection orders them after every reply.
+      thread.messages.push({
+        role: "user",
+        text: 'Background command "Run the suite" completed',
+        createdBy: "agent",
+        createdAt: DateTime.subtract(NOW, { minutes: 2 }),
+      });
+      yield* Queue.offer(events, runUpdated(FIRST_RUN));
+
+      const published = yield* nextSuggestion(suggestions, (text) => text !== null);
+      assert.isTrue(Option.isSome(published));
+      assert.isTrue(requests[0]?.conversation.endsWith("Want me to run the whole suite?"));
     }),
   ),
 );

@@ -128,8 +128,12 @@ let activeTranscriptionOperation: Promise<unknown> | null = null;
 
 function acquireSession(): VoiceInputSession | null {
   if (activeSession) return null;
-  const { promise, resolve } = Promise.withResolvers<void>();
-  const token = { abandoned: false, released: promise, release: resolve };
+  // Not Promise.withResolvers: the web client still compiles against ES2023.
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const token = { abandoned: false, released, release };
   activeSession = token;
   return token;
 }
@@ -166,6 +170,10 @@ function preparationErrorMessage(error: unknown): string {
   }
   if (errorCode(error) === "unsupported-locale") {
     return "Voice transcription is not available for this language.";
+  }
+  // Transcribers word this for the user, e.g. which OS the host needs.
+  if (errorCode(error) === "unavailable" && error instanceof Error) {
+    return error.message;
   }
   return "Could not prepare voice transcription.";
 }

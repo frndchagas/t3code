@@ -278,6 +278,8 @@ export const make = Effect.gen(function* () {
       peerLinks: true,
       mcpModeLimitHeader: true,
       linkFence: true,
+      // The helper itself reports older macOS releases and missing toolchains on first use.
+      voiceTranscription: hostPlatform === "darwin",
     },
   };
 

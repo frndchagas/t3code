@@ -579,6 +579,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rich text tiptap bold italic markdown styled wysiwyg"],
   },
   {
+    id: "voice-input-language",
+    title: "Voice input language",
+    to: "/settings/chat",
+    searchTerms: ["voice dictation microphone speech transcription language locale audio"],
+  },
+  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/chat",

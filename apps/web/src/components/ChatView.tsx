@@ -1254,6 +1254,9 @@ export default function ChatView(props: ChatViewProps) {
   const attachmentUploadsCapabilityKnown = attachmentEnvironmentConfig !== null;
   const supportsQuestionAttachments = attachmentEnvironmentConfig !== null;
   const supportsAttachmentUploads = attachmentEnvironmentConfig !== null;
+  const supportsVoiceTranscription =
+    supportsAttachmentUploads &&
+    attachmentEnvironmentConfig?.environment.capabilities.voiceTranscription === true;
   const advertisedFileAttachmentBytes =
     attachmentEnvironmentConfig?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null;
   const maxFileAttachmentBytes =
@@ -3616,6 +3619,7 @@ export default function ChatView(props: ChatViewProps) {
                               attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}
                               supportsAttachmentUploads={supportsAttachmentUploads}
                               supportsQuestionAttachments={supportsQuestionAttachments}
+                              supportsVoiceTranscription={supportsVoiceTranscription}
                               maxFileAttachmentBytes={maxFileAttachmentBytes}
                               routeKind={routeKind}
                               routeThreadRef={routeThreadRef}

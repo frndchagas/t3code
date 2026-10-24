@@ -209,6 +209,23 @@ microphone. Swipe a device left to forget it.
 Transcription runs on your device. T3 Code deletes the temporary audio after
 transcription or cancellation; only the message text is sent when you submit.
 
+## Voice input on web and desktop
+
+When the environment runs on a Mac with macOS 26 or later and the Xcode command line
+tools, the composer shows a microphone next to the send button. Click it to record,
+then click the check mark to transcribe, or the X to discard. The text is inserted at
+the cursor for you to review before sending; the composer is read-only while you record.
+
+By default T3 Code recognizes which of your browser's languages you speak, up to three,
+so you can switch languages between recordings. To always transcribe in one language,
+choose it in **Settings → Chat → Voice input language**. On the desktop app the
+browser's languages are your system languages.
+
+The recording is transcribed on the environment's Mac, not in the browser, so it also
+works when you connect remotely. The first use of a language may take a moment while
+macOS downloads its speech model. T3 Code deletes the uploaded audio after
+transcription. Browsers allow the microphone only on HTTPS pages or `localhost`.
+
 ## Queued messages
 
 On web and desktop, the composer shows **Interrupt** while the agent is working and the draft is

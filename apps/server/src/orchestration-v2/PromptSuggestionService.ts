@@ -1,6 +1,7 @@
 import type { RunId, ThreadId } from "@t3tools/contracts";
 import { formatPromptSuggestionContext } from "@t3tools/provider-core/server/promptSuggestionContext";
 import { createModelSelection } from "@t3tools/shared/model";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FiberMap from "effect/FiberMap";
 import * as Option from "effect/Option";
@@ -55,7 +56,13 @@ export const make = Effect.gen(function* () {
       const latest = runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
       if (latest?.id !== runId || latest.status !== "completed") return;
       if (runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status))) return;
-      const conversation = messages.filter((message) => !message.streaming);
+      // The projection orders messages by turn item, and background command or
+      // delegated task notices have none, so they sort after every later reply.
+      const conversation = messages
+        .filter((message) => !message.streaming)
+        .toSorted(
+          (a, b) => DateTime.toEpochMillis(a.createdAt) - DateTime.toEpochMillis(b.createdAt),
+        );
       if (conversation.at(-1)?.role !== "assistant") return;
       const project = yield* projects.get(thread.projectId);
       if (Option.isNone(project)) return;

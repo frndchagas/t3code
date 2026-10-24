@@ -195,6 +195,8 @@ import {
   ComposerRestingImagePreviews,
 } from "./ComposerAttachmentStrip";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { ComposerVoiceControl } from "./ComposerVoiceControl";
+import { useComposerVoiceInput } from "./useComposerVoiceInput";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -364,6 +366,7 @@ export interface ChatComposerProps {
   attachmentUploadsCapabilityKnown: boolean;
   supportsAttachmentUploads: boolean;
   supportsQuestionAttachments: boolean;
+  supportsVoiceTranscription: boolean;
   maxFileAttachmentBytes: number | null;
   routeKind: "server" | "draft";
   routeThreadRef: ScopedThreadRef;
@@ -532,6 +535,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
     supportsQuestionAttachments,
+    supportsVoiceTranscription,
     maxFileAttachmentBytes,
     routeKind,
     routeThreadRef,
@@ -974,8 +978,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderEntry?.snapshot,
     selectedModel,
   );
+  // Callbacks run only on voice events, after the editor helpers below are defined.
+  const voiceInput = useComposerVoiceInput(
+    {
+      environmentId,
+      ownerKey: composerDraftTargetKey,
+      language: settings.voiceInputLanguage,
+      readDraft: () => {
+        const snapshot = readComposerSnapshot();
+        return {
+          text: snapshot.value,
+          selection: { start: snapshot.expandedCursor, end: snapshot.expandedCursor },
+        };
+      },
+      commitDraft: (text, cursor) => {
+        applyPromptReplacement(0, promptRef.current.length, text, {
+          expandedCursorAfterReplace: cursor,
+        });
+      },
+    },
+    supportsVoiceTranscription && canOperateThread && !activePendingProgress,
+  );
   const sendDisabledReason =
     externalSendDisabledReason ??
+    (voiceInput.busy ? "Finish voice input first" : null) ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
     (activePendingProgress
       ? attachmentBlockReason
@@ -3330,6 +3356,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       focusComposer={focusComposer}
     />
   ) : null;
+  const composerVoiceControl = voiceInput.supported ? (
+    <ComposerVoiceControl
+      state={voiceInput.state}
+      disabled={isConnecting || isSendBusy || projectSelectionRequired}
+      onStart={voiceInput.start}
+      onStop={voiceInput.stop}
+      onCancel={voiceInput.cancel}
+    />
+  ) : null;
   return (
     <form
       ref={composerFormRef}
@@ -3718,7 +3753,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       isConnecting ||
                       projectSelectionRequired ||
                       isChoiceOnlyPendingQuestion ||
-                      activePendingIsResponding
+                      activePendingIsResponding ||
+                      voiceInput.busy
                     }
                   />
                 </ComposerContextActionsContext>
@@ -3797,6 +3833,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
                   {composerAttachButton}
+                  {composerVoiceControl}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}

@@ -134,6 +134,26 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
   "double-click": "Double press",
 };
 
+// Select items need a non-empty value; the setting stores automatic detection as "".
+const AUTOMATIC_VOICE_INPUT_LANGUAGE = "automatic";
+// Apple's speech models cover more, but these are the ones worth a menu entry; the server maps
+// each to its closest supported language.
+const VOICE_INPUT_LANGUAGES = [
+  { value: AUTOMATIC_VOICE_INPUT_LANGUAGE, label: "Automatic" },
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "pt-BR", label: "Português (Brasil)" },
+  { value: "pt-PT", label: "Português (Portugal)" },
+  { value: "es-ES", label: "Español (España)" },
+  { value: "es-MX", label: "Español (México)" },
+  { value: "fr-FR", label: "Français" },
+  { value: "de-DE", label: "Deutsch" },
+  { value: "it-IT", label: "Italiano" },
+  { value: "ja-JP", label: "日本語" },
+  { value: "ko-KR", label: "한국어" },
+  { value: "zh-CN", label: "中文（简体）" },
+] as const;
+
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 function AboutVersionTitle() {
   return (
@@ -481,6 +501,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
       ? ["Rich text composer"]
       : []),
+    ...(settings.voiceInputLanguage !== DEFAULT_UNIFIED_SETTINGS.voiceInputLanguage
+      ? ["Voice input language"]
+      : []),
     ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut ? ["Send shortcut"] : []),
     ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
       ? ["Follow-up behavior"]
@@ -598,6 +621,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
+      voiceInputLanguage: DEFAULT_UNIFIED_SETTINGS.voiceInputLanguage,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
@@ -1080,6 +1104,50 @@ export function ChatSettingsPanel() {
               }
               aria-label="Rich text composer"
             />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("voice-input-language")}
+          description="Automatic recognizes which of your browser's languages you speak, up to three. Pick one to always transcribe in it."
+          resetAction={
+            settings.voiceInputLanguage !== DEFAULT_UNIFIED_SETTINGS.voiceInputLanguage ? (
+              <SettingResetButton
+                label="voice input language"
+                onClick={() =>
+                  updateSettings({
+                    voiceInputLanguage: DEFAULT_UNIFIED_SETTINGS.voiceInputLanguage,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.voiceInputLanguage || AUTOMATIC_VOICE_INPUT_LANGUAGE}
+              onValueChange={(value) => {
+                if (typeof value !== "string") return;
+                updateSettings({
+                  voiceInputLanguage: value === AUTOMATIC_VOICE_INPUT_LANGUAGE ? "" : value,
+                });
+              }}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-48" aria-label="Voice input language">
+                <SelectValue>
+                  {VOICE_INPUT_LANGUAGES.find(
+                    (language) =>
+                      language.value ===
+                      (settings.voiceInputLanguage || AUTOMATIC_VOICE_INPUT_LANGUAGE),
+                  )?.label ?? settings.voiceInputLanguage}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {VOICE_INPUT_LANGUAGES.map((language) => (
+                  <SelectItem hideIndicator key={language.value} value={language.value}>
+                    {language.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           }
         />
         <SettingsRow

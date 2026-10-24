@@ -266,6 +266,8 @@ export const make = Effect.gen(function* () {
         : {}),
       ...(desktopAppUpdate ? { desktopAppUpdate: true } : {}),
       serverBrowser: true,
+      // The helper itself reports older macOS releases and missing toolchains on first use.
+      voiceTranscription: hostPlatform === "darwin",
     },
   };
 

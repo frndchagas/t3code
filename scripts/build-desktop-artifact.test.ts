@@ -1141,6 +1141,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
+        const path = yield* Path.Path;
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
@@ -1149,9 +1150,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
         });
 
-        assert.isFalse(
-          commands.some((command) => command.options.env?.ELECTRON_RUN_AS_NODE === "1"),
-        );
+        // Match the probe by executable: the Node probe inherits the ambient environment,
+        // which carries ELECTRON_RUN_AS_NODE when the build runs inside an Electron host.
+        const executablePath = path.join(fixture.packagedAppDir, fixture.appExecutableName);
+        assert.isFalse(commands.some((command) => command.command === executablePath));
         assert.isTrue(
           commands.some(
             (command) =>

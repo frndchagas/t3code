@@ -289,6 +289,7 @@ function createTextGeneration(
       }),
     generateReviewGuide: () => Effect.succeed({ stops: [] }),
     generatePromptSuggestion: () => Effect.succeed({ suggestion: null }),
+    correctVoiceTranscript: () => Effect.succeed({ text: null }),
     ...overrides,
   };
 
@@ -339,6 +340,7 @@ function createTextGeneration(
       ),
     generateReviewGuide: (input) => implementation.generateReviewGuide(input),
     generatePromptSuggestion: (input) => implementation.generatePromptSuggestion(input),
+    correctVoiceTranscript: (input) => implementation.correctVoiceTranscript(input),
   };
 }
 

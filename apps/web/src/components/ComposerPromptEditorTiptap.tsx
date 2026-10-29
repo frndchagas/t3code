@@ -1825,7 +1825,9 @@ function ComposerPromptEditorTiptapInner(
                 )}
               >
                 {placeholderHint ? (
-                  <span className="me-2 inline-flex align-middle">{placeholderHint}</span>
+                  <span className="pointer-events-auto me-2 inline-flex align-middle">
+                    {placeholderHint}
+                  </span>
                 ) : null}
                 {placeholder}
               </div>

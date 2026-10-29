@@ -1213,17 +1213,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pendingUserInputs.length > 0 ||
     (!isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan !== null);
   // Ghost text for an idle, empty composer that nothing else is asking for.
-  const promptSuggestion =
+  const idlePromptSuggestion =
     props.promptSuggestion !== null &&
     phase === "ready" &&
     canOperateThread &&
     !isSendBusy &&
     !showComposerTopDrawer &&
-    !isComposerCollapsedMobile &&
     prompt.length === 0 &&
     !composerSendState.hasSendableContent
       ? props.promptSuggestion
       : null;
+  const promptSuggestion = isComposerCollapsedMobile ? null : idlePromptSuggestion;
   const showCollapsedMobilePromptRow = isComposerCollapsedMobile;
   const showComposerAttachAction =
     fileStagingLimit !== null &&
@@ -3271,7 +3271,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   aria-label="Expand composer"
                 >
                   {prompt.trim() ||
-                    (showProviderUnavailable ? "Enable a provider in Settings" : "Ask anything...")}
+                    (showProviderUnavailable
+                      ? "Enable a provider in Settings"
+                      : (idlePromptSuggestion?.text ?? "Ask anything..."))}
                 </button>
                 {collapsedComposerImagePreviews}
                 <button
@@ -3440,7 +3442,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 ? "Enable a provider in Settings to send a message"
                                 : (promptSuggestion?.text ?? DEFAULT_COMPOSER_PLACEHOLDER)
                     }
-                    placeholderHint={promptSuggestion !== null ? <Kbd>→</Kbd> : undefined}
+                    placeholderHint={
+                      promptSuggestion !== null ? (
+                        // Touch keyboards have no Right Arrow or Tab, so the key hint is also a tap target.
+                        <button
+                          type="button"
+                          aria-label="Use suggestion"
+                          className="-m-1.5 inline-flex p-1.5"
+                          onPointerDown={(event) => event.preventDefault()}
+                          onClick={() => editPromptFromTraitsStable(() => promptSuggestion.text)}
+                        >
+                          <Kbd>→</Kbd>
+                        </button>
+                      ) : undefined
+                    }
                     disabled={
                       projectSelectionRequired ||
                       isChoiceOnlyPendingQuestion ||

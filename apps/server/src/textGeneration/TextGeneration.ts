@@ -35,6 +35,8 @@ export type {
   ReviewGuideGenerationResult,
   ThreadTitleGenerationInput,
   ThreadTitleGenerationResult,
+  VoiceTranscriptCorrectionInput,
+  VoiceTranscriptCorrectionResult,
 } from "@t3tools/provider-core/server/textGeneration";
 
 export class TextGeneration extends Context.Service<TextGeneration, ProviderTextGeneration>()(
@@ -47,7 +49,8 @@ type TextGenerationOp =
   | "generateBranchName"
   | "generateThreadTitle"
   | "generateReviewGuide"
-  | "generatePromptSuggestion";
+  | "generatePromptSuggestion"
+  | "correctVoiceTranscript";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -159,6 +162,13 @@ export const make = Effect.gen(function* () {
         ).pipe(Effect.flatMap((textGeneration) => textGeneration.generatePromptSuggestion(input)));
       },
     ),
+    correctVoiceTranscript: Effect.fn("TextGeneration.correctVoiceTranscript")(function (input) {
+      return resolveInstance(
+        registry,
+        "correctVoiceTranscript",
+        input.modelSelection.instanceId,
+      ).pipe(Effect.flatMap((textGeneration) => textGeneration.correctVoiceTranscript(input)));
+    }),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {
       return generate(
         "generateThreadTitle",

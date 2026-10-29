@@ -3444,7 +3444,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ) : showProviderUnavailable ? (
                     "Enable a provider in Settings"
                   ) : (
-                    "Ask anything..."
+                    (offeredPromptSuggestion ?? "Ask anything...")
                   )}
                 </button>
                 {collapsedComposerImagePreviews}
@@ -3635,7 +3635,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     placeholderSuffix={
                       offeredPromptSuggestion !== null ? (
                         <span className="ml-2 inline-flex align-[1px]">
-                          <Kbd variant="outline">⇥ Tab</Kbd>
+                          {/* Touch keyboards have no Tab, so the key hint is also a tap target. */}
+                          <button
+                            type="button"
+                            aria-label="Use suggestion"
+                            className="pointer-events-auto -m-1.5 inline-flex p-1.5"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => applyPromptReplacementStable(0, 0, offeredPromptSuggestion)}
+                          >
+                            <Kbd variant="outline">⇥ Tab</Kbd>
+                          </button>
                         </span>
                       ) : undefined
                     }

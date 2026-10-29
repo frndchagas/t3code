@@ -65,6 +65,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type TouchEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -2280,6 +2281,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     !showProviderUnavailable
       ? promptSuggestion
       : null;
+  const acceptPromptSuggestion = (text: string) => {
+    applyPromptReplacement(0, 0, text);
+    if (isComposerCollapsedMobile) expandMobileComposer();
+  };
+  // Touch keyboards have no Tab or Right Arrow, so a rightward swipe takes the suggestion.
+  const suggestionSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const onComposerTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches.length === 1 ? event.touches[0] : undefined;
+    suggestionSwipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+  };
+  const onComposerTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = suggestionSwipeStartRef.current;
+    suggestionSwipeStartRef.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || !touch || offeredPromptSuggestion === null) return;
+    const deltaX = touch.clientX - start.x;
+    if (deltaX < 48 || Math.abs(touch.clientY - start.y) > deltaX / 2) return;
+    acceptPromptSuggestion(offeredPromptSuggestion);
+  };
 
   const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem?: boolean) =>
     composerCommandKeyHandler({
@@ -3300,6 +3320,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             ref={composerSurfaceRef}
             data-chat-composer-surface="true"
             data-chat-composer-mobile-collapsed={isComposerCollapsedMobile ? "true" : "false"}
+            onTouchStart={onComposerTouchStart}
+            onTouchEnd={onComposerTouchEnd}
             className={cn(
               "rounded-2xl transition-[background-color] duration-200",
               "in-data-[thread-context-over]:bg-accent/45 in-data-[thread-context-over]:ring-1 in-data-[thread-context-over]:ring-inset in-data-[thread-context-over]:ring-primary/70",
@@ -3496,13 +3518,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     placeholderSuffix={
                       offeredPromptSuggestion !== null ? (
                         <span className="ml-2 inline-flex align-[1px]">
-                          {/* Touch keyboards have no Tab, so the key hint is also a tap target. */}
+                          {/* The key hint doubles as a tap target on touch screens. */}
                           <button
                             type="button"
                             aria-label="Use suggestion"
                             className="pointer-events-auto -m-1.5 inline-flex p-1.5"
                             onPointerDown={(event) => event.preventDefault()}
-                            onClick={() => applyPromptReplacementStable(0, 0, offeredPromptSuggestion)}
+                            onClick={() => acceptPromptSuggestion(offeredPromptSuggestion)}
                           >
                             <Kbd variant="outline">⇥ Tab</Kbd>
                           </button>

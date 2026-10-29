@@ -3901,7 +3901,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ) : showProviderUnavailable ? (
                     gt("Enable a provider in Settings")
                   ) : (
-                    gt("Ask anything...")
+                    (offeredPromptSuggestion ?? gt("Ask anything..."))
                   )}
                 </button>
                 {collapsedComposerImagePreviews}
@@ -4105,23 +4105,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     placeholderSuffix={
                       offeredPromptSuggestion !== null ? (
-                        // The placeholder ignores pointer events so clicks reach the editor; only this hint opts back in.
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          aria-label={gt("Use suggested prompt")}
-                          className="pointer-events-auto ml-2 inline-flex cursor-pointer rounded align-[1px] [&:hover_kbd]:text-foreground"
-                          onPointerDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            const accepted = promptSuggestionToAccept(
-                              offeredPromptSuggestion,
-                              promptRef.current,
-                            );
-                            if (accepted !== null) applyPromptReplacementStable(0, 0, accepted);
-                          }}
-                        >
-                          <Kbd variant="outline">⇥ Tab</Kbd>
-                        </button>
+                        <span className="ml-2 inline-flex align-[1px]">
+                          {/* The placeholder ignores pointer events, so only this hint opts back in; on touch screens, which have no Tab, it is the tap target. */}
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-label={gt("Use suggested prompt")}
+                            className="pointer-events-auto -m-1.5 inline-flex cursor-pointer rounded p-1.5 [&:hover_kbd]:text-foreground"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              const accepted = promptSuggestionToAccept(
+                                offeredPromptSuggestion,
+                                promptRef.current,
+                              );
+                              if (accepted !== null) applyPromptReplacementStable(0, 0, accepted);
+                            }}
+                          >
+                            <Kbd variant="outline">⇥ Tab</Kbd>
+                          </button>
+                        </span>
                       ) : undefined
                     }
                     disabled={

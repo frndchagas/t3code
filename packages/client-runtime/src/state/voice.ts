@@ -87,7 +87,7 @@ function serverFailure(
     case "VoiceTranscriptionUnavailableError":
       return new VoiceTranscriptionError(
         "unavailable",
-        "Voice transcription needs a macOS 26 or later server with the Xcode command line tools.",
+        "Voice transcription needs whisper.cpp on the server's Mac: run brew install whisper-cpp.",
         { cause: error },
       );
     case "VoiceTranscriptionUnsupportedLocaleError":

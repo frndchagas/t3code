@@ -2,10 +2,10 @@ import {
   VoiceTranscriptionFailedError,
   VoiceTranscriptionUnavailableError,
   VoiceTranscriptionUnsupportedLocaleError,
-  VoicePrepareResult,
-  VoiceTranscribeResult,
   type VoicePrepareInput,
+  type VoicePrepareResult,
   type VoiceTranscribeInput,
+  type VoiceTranscribeResult,
   type VoiceTranscriptionError,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -24,23 +24,57 @@ import {
 } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { APPLE_SPEECH_HELPER_SOURCE } from "./appleSpeechHelperSource.ts";
 
-// Bump with every change to the Swift source so hosts rebuild their cached binary.
-const HELPER_BINARY_NAME = "t3-speech-2";
-const HELPER_EXIT_UNAVAILABLE = 2;
-const HELPER_EXIT_UNSUPPORTED_LOCALE = 3;
-const COMPILE_TIMEOUT = "3 minutes";
-// The first use of a language downloads Apple's speech model.
-const PREPARE_TIMEOUT = "10 minutes";
+// Homebrew's whisper.cpp (`brew install whisper-cpp`), which runs Whisper on the Mac's GPU.
+const WHISPER_COMMAND = "whisper-cli";
+const WHISPER_MODEL = {
+  file: "ggml-large-v3-turbo-q8_0.bin",
+  url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+};
+// Voice activity detection: without it, silence and noise come back as "Thank you."
+const VAD_MODEL = {
+  file: "ggml-silero-v5.1.2.bin",
+  url: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+};
+// The first use downloads the models, about 870 MB.
+const DOWNLOAD_TIMEOUT = "30 minutes";
 const TRANSCRIBE_TIMEOUT = "5 minutes";
 
-const decodePrepareOutput = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ locales: VoicePrepareResult.fields.locales })),
+// Whisper's language codes; a BCP 47 tag maps to its base language.
+const WHISPER_LANGUAGES = new Set(
+  (
+    "en zh de es ru ko fr ja pt tr pl ca nl ar sv it id hi fi vi he uk el ms cs ro da hu ta no th " +
+    "ur hr bg lt la mi ml cy sk te fa lv bn sr az sl kn et mk br eu is hy ne mn bs kk sq sw gl mr " +
+    "pa si km sn yo so af oc ka be tg sd gu am yi lo uz fo ht ps tk nn mt sa lb my bo tl mg as tt " +
+    "haw ln ha ba jw su yue"
+  ).split(" "),
 );
-const decodeTranscribeOutput = Schema.decodeUnknownOption(
-  Schema.fromJsonString(VoiceTranscribeResult),
+
+const decodeWhisperOutput = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      result: Schema.Struct({ language: Schema.String }),
+      transcription: Schema.Array(Schema.Struct({ text: Schema.String })),
+    }),
+  ),
 );
+
+interface Candidate {
+  readonly locale: string;
+  readonly language: string;
+}
+
+/** One candidate per Whisper language, in the client's order of preference. */
+function whisperCandidates(locales: ReadonlyArray<string>): ReadonlyArray<Candidate> {
+  const candidates: Candidate[] = [];
+  for (const locale of locales) {
+    const language = locale.split("-")[0]?.toLowerCase() ?? "";
+    if (!WHISPER_LANGUAGES.has(language)) continue;
+    if (candidates.some((candidate) => candidate.language === language)) continue;
+    candidates.push({ locale, language });
+  }
+  return candidates;
+}
 
 export class VoiceTranscription extends Context.Service<
   VoiceTranscription,
@@ -61,89 +95,145 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const runner = yield* ProcessRunner.ProcessRunner;
   const platform = yield* HostProcess.Platform;
-  const buildLock = yield* Semaphore.make(1);
-  const helperDirectory = path.join(config.providerStatusCacheDir, "voice");
-  const helperPath = path.join(helperDirectory, HELPER_BINARY_NAME);
+  const downloadLock = yield* Semaphore.make(1);
+  const modelDirectory = path.join(config.providerStatusCacheDir, "voice");
+  const whisperModelPath = path.join(modelDirectory, WHISPER_MODEL.file);
+  const vadModelPath = path.join(modelDirectory, VAD_MODEL.file);
 
-  const helperExists = fileSystem.exists(helperPath).pipe(Effect.orElseSucceed(() => false));
-
-  const buildHelper = Effect.gen(function* () {
-    if (yield* helperExists) return;
-    const unavailable = (cause: unknown) => new VoiceTranscriptionUnavailableError({ cause });
-    yield* fileSystem
-      .makeDirectory(helperDirectory, { recursive: true })
-      .pipe(Effect.mapError(unavailable));
-    const workDirectory = yield* fileSystem
-      .makeTempDirectory({ directory: helperDirectory, prefix: "build-" })
-      .pipe(Effect.mapError(unavailable));
-    const sourcePath = path.join(workDirectory, "main.swift");
-    const outputPath = path.join(workDirectory, HELPER_BINARY_NAME);
-    yield* Effect.gen(function* () {
-      yield* fileSystem
-        .writeFileString(sourcePath, APPLE_SPEECH_HELPER_SOURCE)
-        .pipe(Effect.mapError(unavailable));
-      const result = yield* runner
-        .run({
-          command: "xcrun",
-          args: ["swiftc", "-O", "-parse-as-library", sourcePath, "-o", outputPath],
-          cwd: workDirectory,
-          timeout: COMPILE_TIMEOUT,
-        })
-        .pipe(Effect.mapError(unavailable));
-      if (result.code !== 0) {
-        yield* Effect.logWarning("Could not build the voice transcription helper.", {
-          code: result.code,
-          timedOut: result.timedOut,
-        });
-        return yield* new VoiceTranscriptionUnavailableError({});
-      }
-      yield* fileSystem.rename(outputPath, helperPath).pipe(Effect.mapError(unavailable));
-    }).pipe(
-      Effect.ensuring(fileSystem.remove(workDirectory, { recursive: true }).pipe(Effect.ignore)),
-    );
-  }).pipe(buildLock.withPermits(1));
-
-  const runHelper = Effect.fn("VoiceTranscription.runHelper")(function* (
-    stage: "prepare" | "transcribe",
-    args: ReadonlyArray<string>,
+  const candidatesFor = Effect.fn("VoiceTranscription.candidatesFor")(function* (
     locales: ReadonlyArray<string>,
   ) {
     if (platform !== "darwin") {
       return yield* new VoiceTranscriptionUnavailableError({});
     }
-    yield* buildHelper;
+    const [preferred, ...others] = whisperCandidates(locales);
+    if (!preferred) {
+      return yield* new VoiceTranscriptionUnsupportedLocaleError({ locales });
+    }
+    return [preferred, ...others] as const;
+  });
+
+  const ensureWhisper = Effect.gen(function* () {
     const result = yield* runner
-      .run({
-        command: helperPath,
-        args,
-        timeout: stage === "prepare" ? PREPARE_TIMEOUT : TRANSCRIBE_TIMEOUT,
-      })
-      .pipe(Effect.mapError((cause) => new VoiceTranscriptionFailedError({ stage, cause })));
-    switch (result.code) {
-      case 0:
-        return result.stdout;
-      case HELPER_EXIT_UNAVAILABLE:
-        return yield* new VoiceTranscriptionUnavailableError({});
-      case HELPER_EXIT_UNSUPPORTED_LOCALE:
-        return yield* new VoiceTranscriptionUnsupportedLocaleError({ locales });
-      default:
-        yield* Effect.logWarning("Voice transcription helper failed.", {
-          stage,
+      .run({ command: WHISPER_COMMAND, args: ["--help"] })
+      .pipe(Effect.mapError((cause) => new VoiceTranscriptionUnavailableError({ cause })));
+    if (result.code !== 0) {
+      return yield* new VoiceTranscriptionUnavailableError({});
+    }
+  });
+
+  const download = Effect.fn("VoiceTranscription.download")(function* (model: {
+    readonly file: string;
+    readonly url: string;
+  }) {
+    const modelPath = path.join(modelDirectory, model.file);
+    if (yield* fileSystem.exists(modelPath).pipe(Effect.orElseSucceed(() => false))) return;
+    const failed = (cause?: unknown) =>
+      new VoiceTranscriptionFailedError({ stage: "prepare", cause });
+    yield* fileSystem
+      .makeDirectory(modelDirectory, { recursive: true })
+      .pipe(Effect.mapError(failed));
+    const partialPath = `${modelPath}.partial`;
+    yield* Effect.gen(function* () {
+      const result = yield* runner
+        .run({
+          command: "curl",
+          args: [
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--output",
+            partialPath,
+            model.url,
+          ],
+          timeout: DOWNLOAD_TIMEOUT,
+        })
+        .pipe(Effect.mapError(failed));
+      if (result.code !== 0) {
+        yield* Effect.logWarning("Could not download a Whisper model.", {
+          model: model.file,
           code: result.code,
           timedOut: result.timedOut,
+          stderr: result.stderr.slice(-500),
         });
-        return yield* new VoiceTranscriptionFailedError({ stage });
-    }
+        return yield* failed();
+      }
+      yield* fileSystem.rename(partialPath, modelPath).pipe(Effect.mapError(failed));
+    }).pipe(Effect.ensuring(fileSystem.remove(partialPath, { force: true }).pipe(Effect.ignore)));
+  });
+
+  const ensureModels = Effect.all([download(WHISPER_MODEL), download(VAD_MODEL)]).pipe(
+    downloadLock.withPermits(1),
+  );
+
+  const runWhisper = Effect.fn("VoiceTranscription.runWhisper")(function* (
+    audioPath: string,
+    language: string,
+  ) {
+    const failed = (cause?: unknown) =>
+      new VoiceTranscriptionFailedError({ stage: "transcribe", cause });
+    const outputBase = `${audioPath}.whisper`;
+    return yield* Effect.gen(function* () {
+      const result = yield* runner
+        .run({
+          command: WHISPER_COMMAND,
+          args: [
+            "-m",
+            whisperModelPath,
+            "--vad",
+            "-vm",
+            vadModelPath,
+            "-f",
+            audioPath,
+            "-l",
+            language,
+            "-nt",
+            "-np",
+            "-oj",
+            "-of",
+            outputBase,
+          ],
+          timeout: TRANSCRIBE_TIMEOUT,
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            cause._tag === "ProcessSpawnError"
+              ? new VoiceTranscriptionUnavailableError({ cause })
+              : failed(cause),
+          ),
+        );
+      if (result.code !== 0) {
+        yield* Effect.logWarning("Whisper transcription failed.", {
+          code: result.code,
+          timedOut: result.timedOut,
+          stderr: result.stderr.slice(-500),
+        });
+        return yield* failed();
+      }
+      const json = yield* fileSystem
+        .readFileString(`${outputBase}.json`)
+        .pipe(Effect.mapError(failed));
+      const output = decodeWhisperOutput(json);
+      if (output._tag === "None") return yield* failed();
+      return {
+        language: output.value.result.language,
+        text: output.value.transcription
+          .map((segment) => segment.text)
+          .join("")
+          .trim(),
+      };
+    }).pipe(
+      Effect.ensuring(fileSystem.remove(`${outputBase}.json`, { force: true }).pipe(Effect.ignore)),
+    );
   });
 
   const prepare: VoiceTranscription["Service"]["prepare"] = Effect.fn("VoiceTranscription.prepare")(
     function* (input) {
-      const stdout = yield* runHelper("prepare", ["prepare", ...input.locales], input.locales);
-      const output = decodePrepareOutput(stdout);
-      if (output._tag === "None") {
-        return yield* new VoiceTranscriptionFailedError({ stage: "prepare" });
-      }
-      return output.value;
+      const candidates = yield* candidatesFor(input.locales);
+      yield* ensureWhisper;
+      yield* ensureModels;
+      return { locales: candidates.map((candidate) => candidate.locale) };
     },
   );
 
@@ -162,16 +252,20 @@ const make = Effect.gen(function* () {
       return yield* new VoiceTranscriptionFailedError({ stage: "transcribe" });
     }
     return yield* Effect.gen(function* () {
-      const stdout = yield* runHelper(
-        "transcribe",
-        ["transcribe", audioPath, ...input.locales],
-        input.locales,
+      const candidates = yield* candidatesFor(input.locales);
+      const [preferred] = candidates;
+      yield* ensureModels;
+      let output = yield* runWhisper(
+        audioPath,
+        candidates.length === 1 ? preferred.language : "auto",
       );
-      const output = decodeTranscribeOutput(stdout);
-      if (output._tag === "None") {
-        return yield* new VoiceTranscriptionFailedError({ stage: "transcribe" });
+      let spoken = candidates.find((candidate) => candidate.language === output.language);
+      // Detection can land on a language the user does not speak, such as Galician for Portuguese.
+      if (!spoken) {
+        output = yield* runWhisper(audioPath, preferred.language);
+        spoken = preferred;
       }
-      return { text: output.value.text.trim(), locale: output.value.locale };
+      return { text: output.text, locale: spoken.locale };
     }).pipe(Effect.ensuring(fileSystem.remove(audioPath, { force: true }).pipe(Effect.ignore)));
   });
 

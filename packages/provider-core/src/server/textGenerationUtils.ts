@@ -144,3 +144,15 @@ export function sanitizePromptSuggestion(raw: string): string | null {
     ? null
     : suggestion;
 }
+
+/**
+ * A correction keeps roughly the transcript's length: on real dictations it stayed within 0.8x
+ * and 1.2x. A much longer reply is the model answering the dictated message, which it does when
+ * the thread reads like a request addressed to it; a much shorter one dropped part of it.
+ */
+export function sanitizeVoiceTranscriptCorrection(raw: string, transcript: string): string | null {
+  const text = raw.trim();
+  const length = transcript.trim().length;
+  if (text.length === 0 || text.length < length * 0.5) return null;
+  return text.length > length * 1.3 + 30 ? null : text;
+}

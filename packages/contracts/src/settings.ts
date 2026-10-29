@@ -27,6 +27,7 @@ import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
+  DEFAULT_VOICE_TRANSCRIPT_CORRECTION_MODEL,
   ProviderOptionSelections,
 } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
@@ -1340,6 +1341,18 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   promptSuggestionInstructions: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /** A model fixes misheard terms in dictated text, using the thread, before it reaches the composer. */
+  voiceTranscriptCorrectionEnabled: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(true)),
+  ),
+  voiceTranscriptCorrectionModelSelection: ModelSelection.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: DEFAULT_VOICE_TRANSCRIPT_CORRECTION_MODEL,
+      }),
+    ),
+  ),
 
   pullRequestMergeMethod: Schema.NullOr(PullRequestMergeMethod).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -1663,6 +1676,8 @@ export const ServerSettingsPatch = Schema.Struct({
   promptSuggestionsEnabled: Schema.optionalKey(Schema.Boolean),
   promptSuggestionModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   promptSuggestionInstructions: Schema.optionalKey(TrimmedString),
+  voiceTranscriptCorrectionEnabled: Schema.optionalKey(Schema.Boolean),
+  voiceTranscriptCorrectionModelSelection: Schema.optionalKey(ModelSelection),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
   observability: Schema.optionalKey(
     Schema.Struct({

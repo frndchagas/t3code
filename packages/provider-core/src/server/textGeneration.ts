@@ -110,6 +110,20 @@ export interface PromptSuggestionGenerationResult {
   suggestion: string | null;
 }
 
+export interface VoiceTranscriptCorrectionInput {
+  cwd: string;
+  /** Speech-to-text output to correct. */
+  transcript: string;
+  /** The thread the dictation is for, from `formatPromptSuggestionContext`; empty without one. */
+  conversation: string;
+  modelSelection: ModelSelection;
+}
+
+export interface VoiceTranscriptCorrectionResult {
+  /** Null when the reply is unusable, such as an answer to the message instead of a correction. */
+  text: string | null;
+}
+
 export interface ProviderTextGeneration {
   readonly generateCommitMessage: (
     input: CommitMessageGenerationInput,
@@ -134,4 +148,8 @@ export interface ProviderTextGeneration {
   readonly generatePromptSuggestion: (
     input: PromptSuggestionGenerationInput,
   ) => Effect.Effect<PromptSuggestionGenerationResult, TextGenerationError>;
+
+  readonly correctVoiceTranscript: (
+    input: VoiceTranscriptCorrectionInput,
+  ) => Effect.Effect<VoiceTranscriptCorrectionResult, TextGenerationError>;
 }

@@ -1,4 +1,8 @@
-import { AuthOrchestrationOperateScope, type EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
   createServerVoiceTranscriber,
@@ -30,6 +34,8 @@ const IDLE_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: n
 export interface ComposerVoiceInputTarget {
   readonly environmentId: EnvironmentId;
   readonly ownerKey: string;
+  /** Null for a draft, which has no server conversation to correct terms from yet. */
+  readonly threadId: ThreadId | null;
   /** BCP 47 tag; empty detects the spoken language among the browser's languages. */
   readonly language: string;
   readonly readDraft: () => Omit<VoiceDraftSnapshot, "ownerKey" | "revision"> | null;
@@ -46,11 +52,12 @@ function createController(
       controller.handleRecorderStatus(status),
     )),
     getTranscriber: () => {
-      const { environmentId, language } = latest.current;
+      const { environmentId, language, threadId } = latest.current;
       if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return null;
       return createServerVoiceTranscriber({
         registry: appAtomRegistry,
         environmentId,
+        threadId,
         locales: language
           ? [language]
           : voiceDetectionLocales(

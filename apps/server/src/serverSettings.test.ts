@@ -610,6 +610,32 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     ).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it.effect("saves another voice correction model on the default instance", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* serverSettings.updateSettings({
+        voiceTranscriptCorrectionModelSelection: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-5-5",
+          [{ id: "effort", value: "high" }],
+        ),
+      });
+
+      // Only the model differs from the default, and the saved effort belongs to the old model.
+      const next = yield* serverSettings.updateSettings({
+        voiceTranscriptCorrectionModelSelection: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-sonnet-5-5",
+        ),
+      });
+
+      assert.deepEqual(
+        next.voiceTranscriptCorrectionModelSelection,
+        createModelSelection(ProviderInstanceId.make("claudeAgent"), "claude-sonnet-5-5"),
+      );
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("preserves model when switching providers via textGenerationModelSelection", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;

@@ -221,6 +221,16 @@ so you can switch languages between recordings. To always transcribe in one lang
 choose it in **Settings → Chat → Voice input language**. On the desktop app the
 browser's languages are your system languages.
 
+Speech recognition mangles words outside the language it hears, such as English terms
+in a Portuguese sentence. With **Settings → Chat → Voice transcript correction** on, a
+model reads the thread and fixes misheard terms, file and branch names, and ticket keys
+before the text reaches the composer. It keeps your wording and does not translate. The
+correction costs one model call per recording and adds a few seconds; Claude Opus is the
+default **Voice correction model**. The transcript and the thread go to that model's
+provider, and nothing is sent when the provider is off. If the model fails, takes more
+than 45 seconds, or answers the message instead of correcting it, the text arrives as
+transcribed.
+
 The recording is transcribed on the environment's Mac, not in the browser, so it also
 works when you connect remotely. The first use of a language may take a moment while
 macOS downloads its speech model. T3 Code deletes the uploaded audio after

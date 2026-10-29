@@ -24,11 +24,13 @@ import {
   buildPrContentPrompt,
   buildPromptSuggestionPrompt,
   buildThreadTitlePrompt,
+  buildVoiceTranscriptCorrectionPrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizePromptSuggestion,
+  sanitizeVoiceTranscriptCorrection,
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "@t3tools/provider-core/server/textGenerationUtils";
@@ -354,6 +356,16 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     });
     return { suggestion: sanitizePromptSuggestion(generated.suggestion) };
   });
+  const correctVoiceTranscript: ProviderTextGeneration["correctVoiceTranscript"] = Effect.fn(
+    "MuseTextGeneration.correctVoiceTranscript",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "correctVoiceTranscript",
+      ...buildVoiceTranscriptCorrectionPrompt(input),
+      modelSelection: input.modelSelection,
+    });
+    return { text: sanitizeVoiceTranscriptCorrection(generated.text, input.transcript) };
+  });
   return {
     generateCommitMessage,
     generatePrContent,
@@ -361,5 +373,6 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
     generateThreadTitle,
     generateReviewGuide,
     generatePromptSuggestion,
+    correctVoiceTranscript,
   } satisfies ProviderTextGeneration;
 });

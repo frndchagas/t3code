@@ -204,6 +204,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import * as VoiceTranscriptCorrection from "./voice/VoiceTranscriptCorrection.ts";
 import * as VoiceTranscription from "./voice/VoiceTranscription.ts";
 import { readWorkflowScript } from "./orchestration-v2/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
@@ -1350,6 +1351,7 @@ export const layerWsRpc = (
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const voiceTranscription = yield* VoiceTranscription.VoiceTranscription;
+      const voiceTranscriptCorrection = yield* VoiceTranscriptCorrection.VoiceTranscriptCorrection;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -2856,7 +2858,16 @@ export const layerWsRpc = (
         [WS_METHODS.attachmentsCreateUploadUrl]: (input) => issueAttachmentUploadUrl(input),
         [WS_METHODS.attachmentsDelete]: (input) => deletePendingAttachment(input.attachmentId),
         [WS_METHODS.voicePrepare]: (input) => voiceTranscription.prepare(input),
-        [WS_METHODS.voiceTranscribe]: (input) => voiceTranscription.transcribe(input),
+        [WS_METHODS.voiceTranscribe]: (input) =>
+          voiceTranscription
+            .transcribe(input)
+            .pipe(
+              Effect.flatMap((result) =>
+                voiceTranscriptCorrection
+                  .correct({ text: result.text, threadId: input.threadId })
+                  .pipe(Effect.map((text) => ({ ...result, text }))),
+              ),
+            ),
         [WS_METHODS.agentSessionsScan]: () => agentSessionScanner.scan,
         [WS_METHODS.agentSessionsImport]: (input) =>
           agentSessionImporter.importRecentAgentThreads(input),

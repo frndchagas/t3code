@@ -585,6 +585,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["voice dictation microphone speech transcription language locale audio"],
   },
   {
+    id: "voice-transcript-correction",
+    title: "Voice transcript correction",
+    to: "/settings/chat",
+    searchTerms: ["voice dictation transcription correct fix misheard terms model"],
+    environmentOnly: true,
+  },
+  {
+    id: "voice-transcript-correction-model",
+    title: "Voice correction model",
+    to: "/settings/chat",
+    // Hidden until correction is on, so a search lands on the switch that shows it.
+    targetId: "voice-transcript-correction",
+    searchTerms: ["voice dictation transcription correction model provider"],
+    environmentOnly: true,
+  },
+  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/chat",

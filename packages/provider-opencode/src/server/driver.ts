@@ -156,6 +156,11 @@ function selectOpenCodeRuntimeTextGeneration(
         v1: v1.generatePromptSuggestion(input),
         v2: v2.generatePromptSuggestion(input),
       }),
+    correctVoiceTranscript: (input) =>
+      byOpenCodeRuntime(probe.get, {
+        v1: v1.correctVoiceTranscript(input),
+        v2: v2.correctVoiceTranscript(input),
+      }),
   };
 }
 

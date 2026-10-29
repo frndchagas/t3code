@@ -4,6 +4,7 @@ import {
   type AttachmentCreateUploadUrlResult,
   type AttachmentDeleteInput,
   type EnvironmentId,
+  type ThreadId,
   type VoicePrepareInput,
   type VoicePrepareResult,
   type VoiceTranscribeInput,
@@ -115,6 +116,8 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
   readonly environmentId: EnvironmentId;
   /** Candidate languages, most preferred first; with several, the server detects the spoken one. */
   readonly locales: ReadonlyArray<string>;
+  /** The server thread being dictated into, so the server can correct terms from its conversation. */
+  readonly threadId?: ThreadId | null | undefined;
   readonly prepare: EnvironmentCommand<VoicePrepareInput, VoicePrepareResult, PE>;
   readonly transcribe: EnvironmentCommand<VoiceTranscribeInput, VoiceTranscribeResult, TE>;
   readonly createUploadUrl: EnvironmentCommand<
@@ -202,7 +205,14 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
           const transcribed = await runAtomCommand(
             registry,
             input.transcribe,
-            { environmentId, input: { attachmentId: uploaded.attachmentId, locales } },
+            {
+              environmentId,
+              input: {
+                attachmentId: uploaded.attachmentId,
+                locales,
+                ...(input.threadId ? { threadId: input.threadId } : {}),
+              },
+            },
             { reportFailure: false },
           );
           throwIfVoiceTranscriptionAborted(signal);

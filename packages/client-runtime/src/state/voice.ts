@@ -85,25 +85,27 @@ function serverFailure(
 ): VoiceTranscriptionError {
   switch (failureTag(error)) {
     case "VoiceTranscriptionUnavailableError":
-      return new VoiceTranscriptionError(
-        "unavailable",
-        "Voice transcription needs a macOS 26 or later server with the Xcode command line tools.",
-        { cause: error },
-      );
+      return new VoiceTranscriptionError({
+        code: "unavailable",
+        message:
+          "Voice transcription needs whisper.cpp on the server's Mac: run brew install whisper-cpp.",
+        cause: error,
+      });
     case "VoiceTranscriptionUnsupportedLocaleError":
-      return new VoiceTranscriptionError(
-        "unsupported-locale",
-        "Voice transcription does not support this language.",
-        { cause: error },
-      );
+      return new VoiceTranscriptionError({
+        code: "unsupported-locale",
+        message: "Voice transcription does not support this language.",
+        cause: error,
+      });
     default:
-      return new VoiceTranscriptionError(
-        fallback,
-        fallback === "preparation-failed"
-          ? "Voice transcription could not prepare this language."
-          : "Voice transcription failed.",
-        { cause: error },
-      );
+      return new VoiceTranscriptionError({
+        code: fallback,
+        message:
+          fallback === "preparation-failed"
+            ? "Voice transcription could not prepare this language."
+            : "Voice transcription failed.",
+        cause: error,
+      });
   }
 }
 
@@ -164,11 +166,11 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
           try {
             recording = await input.readRecording(uri);
           } catch (error) {
-            throw new VoiceTranscriptionError(
-              "transcription-failed",
-              "Could not read the recording.",
-              { cause: error },
-            );
+            throw new VoiceTranscriptionError({
+              code: "transcription-failed",
+              message: "Could not read the recording.",
+              cause: error,
+            });
           }
           throwIfVoiceTranscriptionAborted(signal);
           const uploaded = await runAttachmentUploadCycle({
@@ -192,11 +194,11 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
               release(uploaded.attachmentId);
             }
             throwIfVoiceTranscriptionAborted(signal);
-            throw new VoiceTranscriptionError(
-              "transcription-failed",
-              "Could not upload the recording.",
-              uploaded.status === "failed" ? { cause: uploaded.error } : undefined,
-            );
+            throw new VoiceTranscriptionError({
+              code: "transcription-failed",
+              message: "Could not upload the recording.",
+              ...(uploaded.status === "failed" ? { cause: uploaded.error } : {}),
+            });
           }
           if (signal.aborted) {
             release(uploaded.attachmentId);

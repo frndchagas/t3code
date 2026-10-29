@@ -13,12 +13,14 @@ import {
   buildPromptSuggestionPrompt,
   buildReviewGuidePrompt,
   buildThreadTitlePrompt,
+  buildVoiceTranscriptCorrectionPrompt,
 } from "./textGenerationPrompts.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizePromptSuggestion,
   sanitizeThreadTitle,
+  sanitizeVoiceTranscriptCorrection,
 } from "./textGenerationUtils.ts";
 
 export type Operation = keyof ProviderTextGeneration;
@@ -184,6 +186,18 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     return { suggestion: sanitizePromptSuggestion(generated.suggestion) };
   });
 
+  const correctVoiceTranscript: ProviderTextGeneration["correctVoiceTranscript"] = Effect.fn(
+    `${name}.correctVoiceTranscript`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "correctVoiceTranscript",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildVoiceTranscriptCorrectionPrompt(input),
+    });
+    return { text: sanitizeVoiceTranscriptCorrection(generated.text, input.transcript) };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
@@ -191,5 +205,6 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     generateThreadTitle,
     generateReviewGuide,
     generatePromptSuggestion,
+    correctVoiceTranscript,
   } satisfies ProviderTextGeneration;
 }

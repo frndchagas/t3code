@@ -4,6 +4,7 @@ import {
   sanitizeCommitSubject,
   sanitizePromptSuggestion,
   sanitizeThreadTitle,
+  sanitizeVoiceTranscriptCorrection,
 } from "./textGenerationUtils.ts";
 
 describe("sanitizeCommitSubject", () => {
@@ -47,5 +48,28 @@ describe("sanitizePromptSuggestion", () => {
     expect(sanitizePromptSuggestion("  ")).toBeNull();
     expect(sanitizePromptSuggestion('""')).toBeNull();
     expect(sanitizePromptSuggestion("x".repeat(1_001))).toBeNull();
+  });
+});
+
+describe("sanitizeVoiceTranscriptCorrection", () => {
+  it("keeps a correction that restores longer terms", () => {
+    expect(
+      sanitizeVoiceTranscriptCorrection(
+        " Pode dar push com force e pedir review do Naveen e do Joel no PR 379. ",
+        "Pode dar push com voz e pedir revio na via do BR três79.",
+      ),
+    ).toBe("Pode dar push com force e pedir review do Naveen e do Joel no PR 379.");
+  });
+
+  it("rejects an empty or truncated reply, or one that answers the message instead", () => {
+    const transcript = "Como está o build da release? Já publicou no prod-0?";
+    expect(sanitizeVoiceTranscriptCorrection("  ", transcript)).toBeNull();
+    expect(sanitizeVoiceTranscriptCorrection("Como está o build?", transcript)).toBeNull();
+    expect(
+      sanitizeVoiceTranscriptCorrection(
+        "O build da release terminou há 10 minutos e já está no prod-0. O deploy passou nos health checks e a versão nova responde no domínio.",
+        transcript,
+      ),
+    ).toBeNull();
   });
 });

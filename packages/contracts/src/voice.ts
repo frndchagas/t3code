@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /** A BCP 47 tag such as `pt-BR`; the server resolves it to the closest supported language. */
 const VoiceLocale = TrimmedNonEmptyString.check(Schema.isMaxLength(64));
@@ -21,6 +21,8 @@ export type VoicePrepareResult = typeof VoicePrepareResult.Type;
 export const VoiceTranscribeInput = Schema.Struct({
   attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
   locales: VoiceLocales,
+  /** The thread being written to, whose conversation helps correct misheard terms. */
+  threadId: Schema.optionalKey(ThreadId),
 });
 export type VoiceTranscribeInput = typeof VoiceTranscribeInput.Type;
 

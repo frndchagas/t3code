@@ -62,6 +62,7 @@ import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
 import { SnoozePresetsRow } from "./SnoozePresetsSettings";
 import { PromptSuggestionSettings } from "./PromptSuggestionSettings";
+import { VoiceTranscriptCorrectionSettings } from "./VoiceTranscriptCorrectionSettings";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { managedTelemetryOffMessage, usePrimaryManagedPolicy } from "../../state/managedPolicy";
 import {
@@ -1180,6 +1181,7 @@ export function ChatSettingsPanel() {
             </Select>
           }
         />
+        <VoiceTranscriptCorrectionSettings />
         <SettingsRow
           {...searchableSetting("send-shortcut")}
           description="Choose when Enter sends a prompt or inserts a new line"

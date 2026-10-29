@@ -953,6 +953,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     {
       environmentId,
       ownerKey: composerDraftTargetKey,
+      threadId: routeKind === "server" ? routeThreadRef.threadId : null,
       language: settings.voiceInputLanguage,
       readDraft: () => {
         const snapshot = readComposerSnapshot();

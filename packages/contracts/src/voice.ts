@@ -40,7 +40,7 @@ export class VoiceTranscriptionUnavailableError extends Schema.TaggedError<Voice
   },
 ) {
   override get message(): string {
-    return "Voice transcription needs a macOS 26 or later server with the Xcode command line tools.";
+    return "Voice transcription needs whisper.cpp on the server's Mac: run brew install whisper-cpp.";
   }
 }
 

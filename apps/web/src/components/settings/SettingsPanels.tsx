@@ -144,8 +144,8 @@ const QUIT_CONFIRMATION_MODE_LABELS: Record<QuitConfirmationMode, string> = {
 
 // Select items need a non-empty value; the setting stores automatic detection as "".
 const AUTOMATIC_VOICE_INPUT_LANGUAGE = "automatic";
-// Apple's speech models cover more, but these are the ones worth a menu entry; the server maps
-// each to its closest supported language.
+// Whisper covers more, but these are the ones worth a menu entry; the server transcribes each in
+// its base language.
 const VOICE_INPUT_LANGUAGES = [
   { value: AUTOMATIC_VOICE_INPUT_LANGUAGE, label: "Automatic" },
   { value: "en-US", label: "English (US)" },

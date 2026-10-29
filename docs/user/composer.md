@@ -212,10 +212,11 @@ transcription or cancellation; only the message text is sent when you submit.
 
 ## Voice input on web and desktop
 
-When the environment runs on a Mac with macOS 26 or later and the Xcode command line
-tools, the composer shows a microphone next to the send button. Click it to record,
-then click the check mark to transcribe, or the X to discard. The text is inserted at
-the cursor for you to review before sending; the composer is read-only while you record.
+When the environment runs on a Mac, the composer shows a microphone next to the send
+button. Transcription needs whisper.cpp on that Mac: install it with `brew install whisper-cpp`.
+Click the microphone to record, then click the check mark to transcribe, or the X to discard.
+The text is inserted at the cursor for you to review before sending; the composer is
+read-only while you record.
 
 By default T3 Code recognizes which of your browser's languages you speak, up to three,
 so you can switch languages between recordings. To always transcribe in one language,
@@ -232,9 +233,9 @@ provider, and nothing is sent when the provider is off. If the model fails, take
 than 45 seconds, or answers the message instead of correcting it, the text arrives as
 transcribed.
 
-The recording is transcribed on the environment's Mac, not in the browser, so it also
-works when you connect remotely. The first use of a language may take a moment while
-macOS downloads its speech model. T3 Code deletes the uploaded audio after
+The recording is transcribed on the environment's Mac with Whisper, not in the browser,
+so it also works when you connect remotely. The first use downloads the Whisper model,
+about 870 MB, and may take a few minutes. T3 Code deletes the uploaded audio after
 transcription. Browsers allow the microphone only on HTTPS pages or `localhost`.
 
 ## Queued messages

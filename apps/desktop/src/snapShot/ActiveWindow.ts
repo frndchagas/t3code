@@ -80,15 +80,18 @@ function run() {
 
 function runMacLookup(): Promise<string> {
   return new Promise((resolve, reject) => {
-    NodeChildProcess.execFile(
+    const child = NodeChildProcess.execFile(
       "/usr/bin/osascript",
-      ["-l", "JavaScript", "-e", MAC_LOOKUP_SCRIPT],
+      ["-l", "JavaScript", "-"],
       { timeout: MAC_LOOKUP_TIMEOUT_MS, maxBuffer: 64 * 1024 },
       (error, stdout) => {
         if (error) reject(error);
         else resolve(stdout);
       },
     );
+    // Endpoint security can misread a long script argument as a filesystem path.
+    child.stdin?.once("error", reject);
+    child.stdin?.end(MAC_LOOKUP_SCRIPT);
   });
 }
 

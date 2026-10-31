@@ -409,6 +409,8 @@ import {
   VoicePrepareResult,
   VoiceTranscribeInput,
   VoiceTranscribeResult,
+  VoiceCorrectInput,
+  VoiceCorrectResult,
   VoiceTranscriptionError,
 } from "./voice.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
@@ -438,6 +440,7 @@ export const WS_METHODS = {
 
   voicePrepare: "voice.prepare",
   voiceTranscribe: "voice.transcribe",
+  voiceCorrect: "voice.correct",
 
   mcpAppsCallTool: "mcpApps.callTool",
   mcpAppsToolInfo: "mcpApps.toolInfo",
@@ -1429,6 +1432,12 @@ const WsVoiceTranscribeRpc = Rpc.make(WS_METHODS.voiceTranscribe, {
   error: Schema.Union([VoiceTranscriptionError, EnvironmentAuthorizationError]),
 });
 
+const WsVoiceCorrectRpc = Rpc.make(WS_METHODS.voiceCorrect, {
+  payload: VoiceCorrectInput,
+  success: VoiceCorrectResult,
+  error: EnvironmentAuthorizationError,
+});
+
 const WsMcpAppsCallToolRpc = Rpc.make(WS_METHODS.mcpAppsCallTool, {
   payload: McpAppCallToolInput,
   success: McpAppCallToolResult,
@@ -2146,6 +2155,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAttachmentsDeleteRpc,
   WsVoicePrepareRpc,
   WsVoiceTranscribeRpc,
+  WsVoiceCorrectRpc,
   WsMcpAppsCallToolRpc,
   WsMcpAppsToolInfoRpc,
   WsMcpAppsReadResourceRpc,

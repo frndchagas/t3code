@@ -5,6 +5,8 @@ import {
   type AttachmentDeleteInput,
   type EnvironmentId,
   type ThreadId,
+  type VoiceCorrectInput,
+  type VoiceCorrectResult,
   type VoicePrepareInput,
   type VoicePrepareResult,
   type VoiceTranscribeInput,
@@ -41,6 +43,10 @@ export function createVoiceEnvironmentAtoms<R, E>(
     transcribe: createEnvironmentRpcCommand(runtime, {
       label: "environment-command:voice:transcribe",
       tag: WS_METHODS.voiceTranscribe,
+    }),
+    correct: createEnvironmentRpcCommand(runtime, {
+      label: "environment-command:voice:correct",
+      tag: WS_METHODS.voiceCorrect,
     }),
   };
 }
@@ -111,7 +117,7 @@ function serverFailure(
  * Transcribes on the environment's host: the recording travels through the attachment upload
  * route, which every connection mode already serves, and the server deletes it afterwards.
  */
-export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
+export function createServerVoiceTranscriber<PE, TE, CE, UE, RE>(input: {
   readonly registry: AtomRegistry.AtomRegistry;
   readonly environmentId: EnvironmentId;
   /** Candidate languages, most preferred first; with several, the server detects the spoken one. */
@@ -120,6 +126,7 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
   readonly threadId?: ThreadId | null | undefined;
   readonly prepare: EnvironmentCommand<VoicePrepareInput, VoicePrepareResult, PE>;
   readonly transcribe: EnvironmentCommand<VoiceTranscribeInput, VoiceTranscribeResult, TE>;
+  readonly correct: EnvironmentCommand<VoiceCorrectInput, VoiceCorrectResult, CE>;
   readonly createUploadUrl: EnvironmentCommand<
     AttachmentCreateUploadUrlInput,
     AttachmentCreateUploadUrlResult,
@@ -207,11 +214,7 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
             input.transcribe,
             {
               environmentId,
-              input: {
-                attachmentId: uploaded.attachmentId,
-                locales,
-                ...(input.threadId ? { threadId: input.threadId } : {}),
-              },
+              input: { attachmentId: uploaded.attachmentId, locales },
             },
             { reportFailure: false },
           );
@@ -221,6 +224,19 @@ export function createServerVoiceTranscriber<PE, TE, UE, RE>(input: {
           }
           locale = transcribed.value.locale;
           return transcribed.value.text;
+        },
+        correct: async (text, { signal }) => {
+          const corrected = await runAtomCommand(
+            registry,
+            input.correct,
+            {
+              environmentId,
+              input: { text, ...(input.threadId ? { threadId: input.threadId } : {}) },
+            },
+            { reportFailure: false },
+          );
+          throwIfVoiceTranscriptionAborted(signal);
+          return corrected._tag === "Success" ? corrected.value.text : text;
         },
       };
     },

@@ -55,19 +55,30 @@ export function ComposerVoiceControl({
 
   if (state.phase === "idle" || state.phase === "error") {
     return (
-      <ActionTooltip label="Voice input">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          disabled={disabled}
-          onPointerDown={keepFocus}
-          onClick={onStart}
-          aria-label="Start voice input"
-        >
-          <MicIcon />
-        </Button>
-      </ActionTooltip>
+      <div className="flex items-center gap-1">
+        {state.correcting ? (
+          <span
+            className="flex items-center gap-1.5 px-1 text-muted-foreground text-xs"
+            role="status"
+          >
+            <Spinner size="sm" aria-hidden="true" />
+            Correcting
+          </span>
+        ) : null}
+        <ActionTooltip label="Voice input">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={disabled}
+            onPointerDown={keepFocus}
+            onClick={onStart}
+            aria-label="Start voice input"
+          >
+            <MicIcon />
+          </Button>
+        </ActionTooltip>
+      </div>
     );
   }
 

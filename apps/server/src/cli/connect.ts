@@ -39,6 +39,7 @@ import * as CliTokenManager from "../cloud/CliTokenManager.ts";
 import { formatReachabilityFailure } from "../cloud/ConnectReachability.ts";
 import { filterRelayResponse } from "../cloud/relayResponse.ts";
 import {
+  CLOUD_ENDPOINT_RUNTIME_CONFIG,
   CLOUD_LINK_REVOKED,
   CLOUD_LINKED_USER_ID,
   isAgentActivityPublishingEnabledValue,
@@ -143,6 +144,7 @@ function stringToBytes(value: string): Uint8Array {
 
 interface CloudCliStatus {
   readonly desired: boolean;
+  readonly exposed: boolean;
   readonly authenticated: boolean;
   readonly linked: boolean;
   readonly revoked: boolean;
@@ -154,6 +156,12 @@ interface CloudCliStatus {
   /** `null` when no server answered the live check, or none ran because no tunnel is wanted. */
   readonly reachability: EnvironmentConnectReachability | null;
 }
+
+const expectsTunnel = (link: {
+  readonly desired: boolean;
+  readonly exposed: boolean;
+  readonly linkMode: CliState.CliDesiredLinkMode;
+}) => link.exposed || (link.desired && link.linkMode === "managed");
 
 function formatRelayClientStatus(executable: RelayClient.RelayClientStatus): ReadonlyArray<string> {
   switch (executable.status) {
@@ -180,7 +188,10 @@ function formatRelayClientStatus(executable: RelayClient.RelayClientStatus): Rea
   }
 }
 
-function formatCloudStatus(status: CloudCliStatus, options?: { readonly json?: boolean }): string {
+export function formatCloudStatus(
+  status: CloudCliStatus,
+  options?: { readonly json?: boolean },
+): string {
   if (options?.json) {
     return JSON.stringify(status, null, 2);
   }
@@ -192,30 +203,30 @@ function formatCloudStatus(status: CloudCliStatus, options?: { readonly json?: b
       : status.desired && status.authenticated
         ? "pending server startup"
         : "not provisioned";
-  const nextStep = !status.authenticated
-    ? "Run `t3 connect link` to authorize and enable T3 Connect."
-    : status.revoked
-      ? "Run `t3 connect link` to link this environment again."
-      : !status.desired
-        ? "Run `t3 connect link` to enable T3 Connect."
-        : !status.linked
-          ? "Start T3 to provision the environment link and launch its managed tunnel."
-          : undefined;
+  const nextStep = status.revoked
+    ? "Run `t3 connect link` to link this environment again."
+    : status.linked && (status.desired || status.exposed)
+      ? undefined
+      : !status.authenticated
+        ? "Run `t3 connect link` to authorize and enable T3 Connect."
+        : !status.desired
+          ? "Run `t3 connect link` to enable T3 Connect."
+          : "Start T3 to provision the environment link and launch its managed tunnel.";
 
   return [
     "T3 Connect",
-    `  Exposure: ${status.desired ? "enabled" : "disabled"}`,
-    `  Authorization: ${status.authenticated ? "stored credential" : "missing"}`,
+    `  Exposure: ${status.exposed ? "enabled" : "disabled"}`,
+    `  CLI sign-in: ${status.authenticated ? "stored credential" : "not signed in"}`,
     `  Environment link: ${provisioned}`,
     `  Relay: ${status.relayUrl ?? "not provisioned"}`,
     `  Publish agent activity: ${status.publishAgentActivity ? "enabled" : "disabled"}`,
     ...formatRelayClientStatus(status.relayClient),
-    ...(!status.desired || status.linkMode !== "managed"
+    ...(!expectsTunnel(status)
       ? []
       : status.reachability === null
         ? [
             "",
-            "No running server answered, so reachability was not checked. Check the background service with `t3 service status`.",
+            "No running server answered, so reachability was not checked. Open T3 Code, or check the background service with `t3 service status`.",
           ]
         : status.reachability.status === "reachable"
           ? [
@@ -688,6 +699,7 @@ const connectStatusCommand = Command.make("status", {
           relayUrl,
           publishAgentActivity,
           revoked,
+          managedTunnel,
           executable,
           linkMode,
         ] = yield* Effect.all(
@@ -698,19 +710,29 @@ const connectStatusCommand = Command.make("status", {
             secrets.get(RELAY_URL_SECRET),
             secrets.get(PUBLISH_AGENT_ACTIVITY_SECRET),
             secrets.get(CLOUD_LINK_REVOKED),
+            secrets.get(CLOUD_ENDPOINT_RUNTIME_CONFIG),
             relayClient.resolve,
             CliState.readCliDesiredLinkMode,
           ],
           { concurrency: "unbounded" },
         );
         // A publish-only link has no tunnel for other devices to reach.
-        const reachability =
-          desired && linkMode === "managed" ? yield* checkLiveReachability() : null;
+        const isRevoked = Option.isSome(cloudUserId) && Option.isSome(revoked);
+        const exposed = CliState.connectEnabled({
+          cliDesired: desired,
+          cliMode: linkMode,
+          managedTunnel: Option.isSome(managedTunnel),
+          revoked: isRevoked,
+        });
+        const reachability = expectsTunnel({ desired, exposed, linkMode })
+          ? yield* checkLiveReachability()
+          : null;
         const status: CloudCliStatus = {
           desired,
+          exposed,
           authenticated,
           linked: Option.isSome(cloudUserId),
-          revoked: Option.isSome(cloudUserId) && Option.isSome(revoked),
+          revoked: isRevoked,
           cloudUserId: Option.isSome(cloudUserId) ? bytesToString(cloudUserId.value) : null,
           relayUrl: Option.isSome(relayUrl) ? bytesToString(relayUrl.value) : null,
           publishAgentActivity: isAgentActivityPublishingEnabledValue(

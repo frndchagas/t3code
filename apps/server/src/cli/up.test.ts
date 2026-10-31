@@ -16,8 +16,9 @@ import { afterEach, vi } from "vite-plus/test";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
+import { connectEnabled } from "../cloud/CliState.ts";
 import { upsertServiceEnv } from "./service.ts";
-import { connectEnabled, planRoutes, upCommand } from "./up.ts";
+import { planRoutes, upCommand } from "./up.ts";
 
 const none = Option.none<boolean>();
 

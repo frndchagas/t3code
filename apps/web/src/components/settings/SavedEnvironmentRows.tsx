@@ -317,7 +317,18 @@ export function SavedBackendListRow({
               attempt={connectionState.attempt}
               expanded={diagnosisOpen}
               onToggle={() => setDiagnosisOpen((open) => !open)}
+              onReconnect={() => void retryNow(environmentId)}
             />
+          ) : enabled &&
+            (environment.connection.phase === "available" ||
+              environment.connection.phase === "offline") ? (
+            <button
+              type="button"
+              onClick={() => void retryNow(environmentId)}
+              className="rounded-sm text-xs font-medium text-foreground outline-none hover:underline focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              Reconnect
+            </button>
           ) : null}
           {serverUpdateState.status !== "idle" ? (
             <div className="mt-1 max-w-md">

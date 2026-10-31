@@ -37,6 +37,19 @@ export const readCliDesiredLinkMode = Effect.gen(function* () {
     : ("managed" as CliDesiredLinkMode);
 });
 
+/**
+ * T3 Connect is on when this CLI asked for a managed link, or when the desktop or
+ * web app made one: that saves the tunnel config but no CLI marker. Revoked is off.
+ */
+export const connectEnabled = (link: {
+  readonly cliDesired: boolean;
+  readonly cliMode: CliDesiredLinkMode;
+  readonly managedTunnel: boolean;
+  readonly revoked: boolean;
+}) =>
+  // The server starts no tunnel for a CLI publish-only link, even with an old tunnel config.
+  !link.revoked && (link.cliDesired ? link.cliMode === "managed" : link.managedTunnel);
+
 export const setCliDesiredCloudLink = Effect.fn("cloud.cli_state.set_desired")(function* (
   desired: boolean,
   mode: CliDesiredLinkMode = "managed",

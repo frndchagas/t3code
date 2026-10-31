@@ -5,6 +5,7 @@ import {
   resolveTranscriptCommit,
   VoiceInputController,
   VOICE_RECORDING_LIMIT_SECONDS,
+  voiceInputBlocksSubmission,
   type VoiceDraftSnapshot,
   type VoiceInputControllerDependencies,
   type VoiceRecorder,
@@ -108,6 +109,59 @@ describe("resolveTranscriptCommit", () => {
 });
 
 describe("VoiceInputController", () => {
+  it.each([
+    { name: "replaces an untouched transcript", edited: null, expected: ["raw", "fixed"] },
+    { name: "keeps what the user edited or sent", edited: "", expected: ["raw"] },
+  ])("after the transcript arrives, correction $name", async ({ edited, expected }) => {
+    const correction = deferred<string>();
+    const harness = createHarness({
+      getTranscriber: () => ({
+        prepare: async () => ({
+          ...preparedTranscription(),
+          transcribe: async () => "raw",
+          correct: () => correction.promise,
+        }),
+      }),
+    });
+    harness.setDraft(draft({ text: "", selection: { start: 0, end: 0 } }));
+    await harness.controller.start();
+    await harness.controller.stop();
+
+    expect(harness.commits.map((commit) => commit.text)).toEqual(["raw"]);
+    expect(harness.controller.currentState).toMatchObject({ phase: "idle", correcting: true });
+    expect(voiceInputBlocksSubmission(harness.controller.currentState)).toBe(false);
+
+    harness.setDraft(draft({ text: edited ?? "raw", selection: { start: 0, end: 0 } }));
+    correction.resolve("fixed");
+    await vi.waitFor(() => expect(harness.controller.currentState.correcting).toBeFalsy());
+
+    expect(harness.commits.map((commit) => commit.text)).toEqual(expected);
+  });
+
+  it("drops a pending correction when a new recording starts", async () => {
+    const correction = deferred<string>();
+    const harness = createHarness({
+      getTranscriber: () => ({
+        prepare: async () => ({
+          ...preparedTranscription(),
+          transcribe: async () => "raw",
+          correct: () => correction.promise,
+        }),
+      }),
+    });
+    harness.setDraft(draft({ text: "", selection: { start: 0, end: 0 } }));
+    await harness.controller.start();
+    await harness.controller.stop();
+    harness.setDraft(draft({ text: "raw", selection: { start: 3, end: 3 } }));
+
+    await harness.controller.start();
+    correction.resolve("fixed");
+    await correction.promise;
+
+    expect(harness.commits.map((commit) => commit.text)).toEqual(["raw"]);
+    expect(harness.controller.currentState.phase).toBe("recording");
+  });
+
   beforeEach(() => resetVoiceInputGlobalsForTests());
 
   it("checks support and permission before recording", async () => {

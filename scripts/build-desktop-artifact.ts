@@ -1780,6 +1780,15 @@ const runCommand = Effect.fn("runCommand")(function* (
   }
 });
 
+export class MissingConnectPublicConfigError extends Schema.TaggedError<MissingConnectPublicConfigError>()(
+  "MissingConnectPublicConfigError",
+  {},
+) {
+  override get message(): string {
+    return "T3CODE_CLERK_PUBLISHABLE_KEY is missing, so this build could not sign in to T3 Connect. Run `cp .env.example .env`, or set T3CODE_DESKTOP_ALLOW_NO_CONNECT=1 to build without it.";
+  }
+}
+
 export class DesktopBuildAlreadyRunningError extends Schema.TaggedError<DesktopBuildAlreadyRunningError>()(
   "DesktopBuildAlreadyRunningError",
   { lockPath: Schema.String },
@@ -3564,6 +3573,14 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const hostPlatform = yield* HostProcess.Platform;
+  // The build succeeds and signs without the key, then relay machines never connect.
+  const repoEnv = loadRepoEnv({ repoRoot });
+  if (
+    !repoEnv.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() &&
+    repoEnv.T3CODE_DESKTOP_ALLOW_NO_CONNECT !== "1"
+  ) {
+    return yield* new MissingConnectPublicConfigError();
+  }
   if (hostPlatform === "linux" && options.platform === "linux") {
     yield* preflightLinuxDesktopBuild(options.arch);
   }

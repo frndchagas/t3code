@@ -9,13 +9,18 @@ import {
   type VoicePrepareResult,
   type VoiceTranscribeInput,
   type VoiceTranscribeResult,
+  type VoiceCorrectInput,
+  type VoiceCorrectResult,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Schema from "effect/Schema";
 import { AsyncResult, type AtomRegistry } from "effect/reactivity";
 
 import { VoiceTranscriptionError } from "../voice-input/transcription.ts";
 import type { AtomCommand } from "./runtime.ts";
 import { createServerVoiceTranscriber, voiceDetectionLocales } from "./voice.ts";
+
+const isVoiceTranscriptionError = Schema.is(VoiceTranscriptionError);
 
 const environmentId = EnvironmentId.make("environment-1");
 const registry = {} as AtomRegistry.AtomRegistry;
@@ -39,6 +44,9 @@ function setup(options: {
   ) => AsyncResult.AsyncResult<VoicePrepareResult, unknown>;
   readonly upload?: () => Promise<void>;
   readonly beforeTranscribe?: () => void;
+  readonly correct?: (
+    input: VoiceCorrectInput,
+  ) => AsyncResult.AsyncResult<VoiceCorrectResult, unknown>;
 }) {
   const removed: string[] = [];
   const transcribed: VoiceTranscribeInput[] = [];
@@ -54,6 +62,11 @@ function setup(options: {
       transcribed.push(input);
       return AsyncResult.success({ text: "olá", locale: "pt-BR" });
     }),
+    correct: command<VoiceCorrectInput, VoiceCorrectResult>((input) =>
+      options.correct
+        ? options.correct(input)
+        : AsyncResult.success({ text: input.text.toUpperCase() }),
+    ),
     createUploadUrl: command<AttachmentCreateUploadUrlInput, AttachmentCreateUploadUrlResult>(() =>
       AsyncResult.success({
         attachmentId: "pending-1-wav",
@@ -83,7 +96,7 @@ async function failure(promise: Promise<unknown>): Promise<VoiceTranscriptionErr
   try {
     await promise;
   } catch (error) {
-    if (error instanceof VoiceTranscriptionError) return error;
+    if (isVoiceTranscriptionError(error)) return error;
     throw error;
   }
   throw new Error("Expected a voice transcription failure.");
@@ -101,6 +114,18 @@ describe("createServerVoiceTranscriber", () => {
     expect(prepared.locale).toBe("pt-BR");
     expect(transcribed).toEqual([{ attachmentId: "pending-1-wav", locales: ["en-US", "pt-BR"] }]);
     expect(removed).toEqual([]);
+    expect(await prepared.correct?.("olá", { signal })).toBe("OLÁ");
+  });
+
+  it("keeps the transcript when correction fails", async () => {
+    const { transcriber } = setup({
+      correct: () => AsyncResult.failure(Cause.fail(new Error("offline"))),
+    });
+    const signal = new AbortController().signal;
+
+    const prepared = await transcriber.prepare({ signal });
+
+    expect(await prepared.correct?.("olá", { signal })).toBe("olá");
   });
 
   it("reports an unsupported language from the server", async () => {

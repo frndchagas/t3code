@@ -73,19 +73,21 @@ function RetryCountdownTicker({ retryAt }: { readonly retryAt: number }) {
   return <>{seconds > 0 ? `retrying in ${seconds}s` : "retrying"}</>;
 }
 
-/** The collapsed failure: the full headline, then the retry state and a Details toggle. */
+/** The collapsed failure: the full headline, then the retry state, Reconnect, and a Details toggle. */
 export function ConnectionDiagnosisSummary({
   diagnosis,
   retryAt,
   attempt,
   expanded,
   onToggle,
+  onReconnect,
 }: {
   readonly diagnosis: ConnectionDiagnosis;
   readonly retryAt: number | null;
   readonly attempt: number;
   readonly expanded: boolean;
   readonly onToggle: () => void;
+  readonly onReconnect: () => void;
 }) {
   return (
     <div className="text-xs">
@@ -95,6 +97,14 @@ export function ConnectionDiagnosisSummary({
         {retryAt !== null && attempt > 0 ? <span aria-hidden>·</span> : null}
         {attempt > 0 ? <span>attempt {attempt}</span> : null}
         {retryAt !== null || attempt > 0 ? <span aria-hidden>·</span> : null}
+        <button
+          type="button"
+          onClick={onReconnect}
+          className="rounded-sm font-medium text-foreground outline-none hover:underline focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          Reconnect
+        </button>
+        <span aria-hidden>·</span>
         <button
           type="button"
           aria-expanded={expanded}

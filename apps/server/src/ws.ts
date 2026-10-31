@@ -2858,16 +2858,9 @@ export const layerWsRpc = (
         [WS_METHODS.attachmentsCreateUploadUrl]: (input) => issueAttachmentUploadUrl(input),
         [WS_METHODS.attachmentsDelete]: (input) => deletePendingAttachment(input.attachmentId),
         [WS_METHODS.voicePrepare]: (input) => voiceTranscription.prepare(input),
-        [WS_METHODS.voiceTranscribe]: (input) =>
-          voiceTranscription
-            .transcribe(input)
-            .pipe(
-              Effect.flatMap((result) =>
-                voiceTranscriptCorrection
-                  .correct({ text: result.text, threadId: input.threadId })
-                  .pipe(Effect.map((text) => ({ ...result, text }))),
-              ),
-            ),
+        [WS_METHODS.voiceTranscribe]: (input) => voiceTranscription.transcribe(input),
+        [WS_METHODS.voiceCorrect]: (input) =>
+          voiceTranscriptCorrection.correct(input).pipe(Effect.map((text) => ({ text }))),
         [WS_METHODS.agentSessionsScan]: () => agentSessionScanner.scan,
         [WS_METHODS.agentSessionsImport]: (input) =>
           agentSessionImporter.importRecentAgentThreads(input),

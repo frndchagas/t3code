@@ -161,7 +161,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   linkFence: Schema.optionalKey(Schema.Boolean),
   /** Server answers server.prepareTriage. */
   triage: Schema.optionalKey(Schema.Boolean),
-  /** Server answers voice.prepare and voice.transcribe. */
+  /** Server answers voice.prepare, voice.transcribe, and voice.correct. */
   voiceTranscription: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;

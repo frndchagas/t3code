@@ -220,18 +220,20 @@ read-only while you record.
 
 By default T3 Code recognizes which of your browser's languages you speak, up to three,
 so you can switch languages between recordings. To always transcribe in one language,
-choose it in **Settings → Chat → Voice input language**. On the desktop app the
+choose it in **Settings → Chat → Voice input language**, which also transcribes faster
+because it skips detection. On the desktop app the
 browser's languages are your system languages.
 
 Speech recognition mangles words outside the language it hears, such as English terms
 in a Portuguese sentence. With **Settings → Chat → Voice transcript correction** on, a
-model reads the thread and fixes misheard terms, file and branch names, and ticket keys
-before the text reaches the composer. It keeps your wording and does not translate. The
-correction costs one model call per recording and adds a few seconds; Claude Opus is the
-default **Voice correction model**. The transcript and the thread go to that model's
-provider, and nothing is sent when the provider is off. If the model fails, takes more
-than 45 seconds, or answers the message instead of correcting it, the text arrives as
-transcribed.
+model reads the thread and fixes misheard terms, file and branch names, and ticket keys.
+It keeps your wording and does not translate. The transcript appears as soon as it is ready,
+and the correction replaces it a few seconds later, while **Correcting** shows next to the
+microphone. You don't have to wait: if you edit or send the text first, it stays as you left
+it. The correction costs one model call per recording; Claude Opus is the default **Voice
+correction model**. The transcript and the thread go to that model's provider, and nothing
+is sent when the provider is off. If the model fails, takes more than 45 seconds, or answers
+the message instead of correcting it, the text stays as transcribed.
 
 The recording is transcribed on the environment's Mac with Whisper, not in the browser,
 so it also works when you connect remotely. The first use downloads the Whisper model,

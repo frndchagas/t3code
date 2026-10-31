@@ -162,6 +162,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.attachmentsDelete]: AuthOrchestrationOperateScope,
   [WS_METHODS.voicePrepare]: AuthOrchestrationOperateScope,
   [WS_METHODS.voiceTranscribe]: AuthOrchestrationOperateScope,
+  [WS_METHODS.voiceCorrect]: AuthOrchestrationOperateScope,
   [WS_METHODS.providerUploadFeedback]: AuthOrchestrationOperateScope,
   [WS_METHODS.mcpAppsCallTool]: AuthOrchestrationOperateScope,
   [WS_METHODS.mcpAppsToolInfo]: AuthOrchestrationReadScope,

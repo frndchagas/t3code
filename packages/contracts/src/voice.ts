@@ -21,8 +21,6 @@ export type VoicePrepareResult = typeof VoicePrepareResult.Type;
 export const VoiceTranscribeInput = Schema.Struct({
   attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
   locales: VoiceLocales,
-  /** The thread being written to, whose conversation helps correct misheard terms. */
-  threadId: Schema.optionalKey(ThreadId),
 });
 export type VoiceTranscribeInput = typeof VoiceTranscribeInput.Type;
 
@@ -32,6 +30,19 @@ export const VoiceTranscribeResult = Schema.Struct({
   locale: VoiceLocale,
 });
 export type VoiceTranscribeResult = typeof VoiceTranscribeResult.Type;
+
+export const VoiceCorrectInput = Schema.Struct({
+  text: Schema.String.check(Schema.isMaxLength(100_000)),
+  /** The thread being written to, whose conversation helps correct misheard terms. */
+  threadId: Schema.optionalKey(ThreadId),
+});
+export type VoiceCorrectInput = typeof VoiceCorrectInput.Type;
+
+/** The transcript as received when correction is off or fails. */
+export const VoiceCorrectResult = Schema.Struct({
+  text: Schema.String,
+});
+export type VoiceCorrectResult = typeof VoiceCorrectResult.Type;
 
 export class VoiceTranscriptionUnavailableError extends Schema.TaggedError<VoiceTranscriptionUnavailableError>()(
   "VoiceTranscriptionUnavailableError",

@@ -65,6 +65,7 @@ function createController(
             ),
         prepare: voiceEnvironment.prepare,
         transcribe: voiceEnvironment.transcribe,
+        correct: voiceEnvironment.correct,
         createUploadUrl: attachmentEnvironment.createUploadUrl,
         removeAttachment: attachmentEnvironment.remove,
         resolveUploadUrl: (relativeUrl) => {

@@ -6,6 +6,8 @@ export type VoiceTranscriptionOptions = {
 export type PreparedVoiceTranscription = {
   readonly locale: string;
   readonly transcribe: (uri: string, options: VoiceTranscriptionOptions) => Promise<string>;
+  /** Runs after the transcript is in the draft, so the user can read or send it meanwhile. */
+  readonly correct?: (transcript: string, options: VoiceTranscriptionOptions) => Promise<string>;
 };
 
 export type VoiceTranscriber = {

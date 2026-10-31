@@ -165,6 +165,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.attachmentsDelete]: "workspace",
   [WS_METHODS.voicePrepare]: "workspace",
   [WS_METHODS.voiceTranscribe]: "workspace",
+  [WS_METHODS.voiceCorrect]: "workspace",
   [WS_METHODS.providerUploadFeedback]: "provider",
   [WS_METHODS.mcpAppsCallTool]: "provider",
   [WS_METHODS.mcpAppsToolInfo]: "provider",

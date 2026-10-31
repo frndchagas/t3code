@@ -10,6 +10,8 @@ export type VoiceInputState = {
   readonly phase: VoiceInputPhase;
   readonly error: string | null;
   readonly errorAction: "retry" | "settings" | null;
+  /** The transcript is in the draft and a model is still correcting it. Blocks nothing. */
+  readonly correcting?: boolean;
 };
 
 export function voiceInputBlocksSubmission(state: VoiceInputState): boolean {
@@ -199,6 +201,7 @@ export class VoiceInputController {
   private readonly ownedRecordingUris = new Set<string>();
   private recordingConfigured = false;
   private finishing = false;
+  private correctionAbortController: AbortController | null = null;
 
   constructor(dependencies: VoiceInputControllerDependencies) {
     this.dependencies = dependencies;
@@ -210,6 +213,7 @@ export class VoiceInputController {
 
   async start(): Promise<void> {
     if (this.state.phase !== "idle" && this.state.phase !== "error") return;
+    this.abandonCorrection();
     const initiatingDraft = this.dependencies.readDraft();
     if (!initiatingDraft) {
       this.setError("This draft is no longer available.", "retry");
@@ -301,6 +305,7 @@ export class VoiceInputController {
   cancel(): void {
     switch (this.state.phase) {
       case "idle":
+        this.abandonCorrection();
         return;
       case "error":
         this.setState(IDLE_STATE);
@@ -355,11 +360,15 @@ export class VoiceInputController {
   }
 
   ownerChanged(): void {
-    if (this.state.phase === "idle") return;
+    if (this.state.phase === "idle") {
+      this.abandonCorrection();
+      return;
+    }
     this.cancel();
   }
 
   dispose(): void {
+    this.correctionAbortController?.abort();
     if (this.state.phase === "recording") {
       this.discardRecording(null);
       return;
@@ -432,6 +441,7 @@ export class VoiceInputController {
 
       this.dependencies.commitDraft(result.text, result.selection);
       this.setState(IDLE_STATE);
+      void this.correctCommittedTranscript(transcription, transcript, capturedDraft, result.text);
     } catch {
       if (this.isCurrent(operationToken)) {
         this.setError("Could not finish voice recording.", "retry");
@@ -440,6 +450,45 @@ export class VoiceInputController {
       this.finishing = false;
       await this.releaseResources();
     }
+  }
+
+  private async correctCommittedTranscript(
+    transcription: PreparedVoiceTranscription,
+    transcript: string,
+    capturedDraft: VoiceDraftSnapshot,
+    committedText: string,
+  ): Promise<void> {
+    if (!transcription.correct) return;
+    const abortController = new AbortController();
+    this.correctionAbortController = abortController;
+    const { signal } = abortController;
+    this.setState({ ...IDLE_STATE, correcting: true });
+    let corrected = transcript;
+    try {
+      corrected = await transcription.correct(transcript, { signal });
+    } catch {}
+    if (signal.aborted) return;
+    this.correctionAbortController = null;
+    this.setState(IDLE_STATE);
+    // Whatever the user typed or sent since then wins over the correction.
+    const current = this.dependencies.readDraft();
+    if (current?.ownerKey !== capturedDraft.ownerKey || current.text !== committedText) return;
+    const result = resolveTranscriptCommit(
+      capturedDraft,
+      capturedDraft,
+      corrected,
+      transcription.locale,
+    );
+    if (result.kind === "commit" && result.text !== committedText) {
+      this.dependencies.commitDraft(result.text, result.selection);
+    }
+  }
+
+  private abandonCorrection(): void {
+    if (!this.correctionAbortController) return;
+    this.correctionAbortController.abort();
+    this.correctionAbortController = null;
+    this.setState(IDLE_STATE);
   }
 
   private async discardRecording(error: string | null): Promise<void> {

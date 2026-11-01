@@ -32,6 +32,7 @@ const managedExecutable = {
 const statusBase = {
   desired: false,
   exposed: false,
+  managedTunnelConfigured: false,
   authenticated: false,
   linked: false,
   revoked: false,
@@ -49,6 +50,7 @@ it.each([
     status: {
       ...statusBase,
       exposed: true,
+      managedTunnelConfigured: true,
       linked: true,
       reachability: {
         status: "reachable",
@@ -62,9 +64,22 @@ it.each([
   },
   {
     label: "a desktop link with the app closed says no server answered and asks for no sign-in",
-    status: { ...statusBase, exposed: true, linked: true },
+    status: { ...statusBase, exposed: true, managedTunnelConfigured: true, linked: true },
     lines: ["  Exposure: enabled", "No running server answered"],
     absent: ["Next:"],
+  },
+  {
+    label:
+      "a desktop link without a tunnel explains the account limit without asking for CLI sign-in",
+    status: { ...statusBase, linked: true },
+    lines: ["Managed tunnel: not configured", "account's tunnel limit", "free a tunnel"],
+    absent: ["Next: Run", "No running server answered", "service restart"],
+  },
+  {
+    label: "a requested CLI tunnel without a config is not reported as provisioned",
+    status: { ...statusBase, desired: true, exposed: true, linked: true, authenticated: true },
+    lines: ["Managed tunnel: not configured", "account's tunnel limit"],
+    absent: ["Next: Run", "No running server answered", "service restart"],
   },
   {
     label: "a publish-only link exposes nothing and needs no sign-in or reachability check",

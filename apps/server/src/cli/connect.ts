@@ -145,6 +145,7 @@ function stringToBytes(value: string): Uint8Array {
 interface CloudCliStatus {
   readonly desired: boolean;
   readonly exposed: boolean;
+  readonly managedTunnelConfigured: boolean;
   readonly authenticated: boolean;
   readonly linked: boolean;
   readonly revoked: boolean;
@@ -199,29 +200,34 @@ export function formatCloudStatus(
   const provisioned = status.revoked
     ? "removed from T3 Connect"
     : status.linked
-      ? "provisioned"
+      ? status.managedTunnelConfigured
+        ? "provisioned"
+        : "provisioned without a managed tunnel"
       : status.desired && status.authenticated
         ? "pending server startup"
         : "not provisioned";
   const nextStep = status.revoked
     ? "Run `t3 connect link` to link this environment again."
-    : status.linked && (status.desired || status.exposed)
-      ? undefined
-      : !status.authenticated
-        ? "Run `t3 connect link` to authorize and enable T3 Connect."
-        : !status.desired
-          ? "Run `t3 connect link` to enable T3 Connect."
-          : "Start T3 to provision the environment link and launch its managed tunnel.";
+    : status.linked && !status.managedTunnelConfigured && status.linkMode === "managed"
+      ? "Enable a managed tunnel in T3 Code’s T3 Connect settings. If the account's tunnel limit was reached, free a tunnel on another environment before trying again. Restarting or signing in again does not free a tunnel slot."
+      : status.linked && (status.desired || status.exposed)
+        ? undefined
+        : !status.authenticated
+          ? "Run `t3 connect link` to authorize and enable T3 Connect."
+          : !status.desired
+            ? "Run `t3 connect link` to enable T3 Connect."
+            : "Start T3 to provision the environment link and launch its managed tunnel.";
 
   return [
     "T3 Connect",
     `  Exposure: ${status.exposed ? "enabled" : "disabled"}`,
     `  CLI sign-in: ${status.authenticated ? "stored credential" : "not signed in"}`,
     `  Environment link: ${provisioned}`,
+    `  Managed tunnel: ${status.managedTunnelConfigured ? "configured" : "not configured"}`,
     `  Relay: ${status.relayUrl ?? "not provisioned"}`,
     `  Publish agent activity: ${status.publishAgentActivity ? "enabled" : "disabled"}`,
     ...formatRelayClientStatus(status.relayClient),
-    ...(!expectsTunnel(status)
+    ...(!status.managedTunnelConfigured || !expectsTunnel(status)
       ? []
       : status.reachability === null
         ? [
@@ -724,12 +730,14 @@ const connectStatusCommand = Command.make("status", {
           managedTunnel: Option.isSome(managedTunnel),
           revoked: isRevoked,
         });
-        const reachability = expectsTunnel({ desired, exposed, linkMode })
-          ? yield* checkLiveReachability()
-          : null;
+        const reachability =
+          Option.isSome(managedTunnel) && expectsTunnel({ desired, exposed, linkMode })
+            ? yield* checkLiveReachability()
+            : null;
         const status: CloudCliStatus = {
           desired,
           exposed,
+          managedTunnelConfigured: Option.isSome(managedTunnel),
           authenticated,
           linked: Option.isSome(cloudUserId),
           revoked: isRevoked,

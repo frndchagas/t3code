@@ -65,44 +65,47 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
   });
 
   describe("materializeCodexShadowHome", () => {
-    it.effect.skipIf(!symlinksSupported)(
-      "keeps Finder metadata local across repeated shadow home setup",
-      () =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
-          const shadowHome = yield* makeTempDir("t3code-codex-shadow-");
-          const sharedMetadata = path.join(sharedHome, ".DS_Store");
-          const shadowMetadata = path.join(shadowHome, ".DS_Store");
+    for (const entryName of [".DS_Store", "version.json"]) {
+      it.effect.skipIf(!symlinksSupported)(
+        `keeps ${entryName} local across repeated shadow home setup`,
+        () =>
+          Effect.gen(function* () {
+            const fileSystem = yield* FileSystem.FileSystem;
+            const path = yield* Path.Path;
+            const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+            const shadowHome = yield* makeTempDir("t3code-codex-shadow-");
+            const sharedMetadata = path.join(sharedHome, entryName);
+            const shadowMetadata = path.join(shadowHome, entryName);
 
-          yield* writeTextFile(sharedMetadata, "shared Finder metadata");
-          yield* writeTextFile(shadowMetadata, "shadow Finder metadata");
-          yield* writeTextFile(path.join(shadowHome, "auth.json"), '{"shadow":true}\n');
-          const layout = yield* resolveCodexHomeLayout(
-            decodeCodexSettings({ homePath: sharedHome, shadowHomePath: shadowHome }),
-          );
+            yield* writeTextFile(shadowMetadata, "shadow metadata");
+            yield* writeTextFile(path.join(shadowHome, "auth.json"), '{"shadow":true}\n');
+            const layout = yield* resolveCodexHomeLayout(
+              decodeCodexSettings({ homePath: sharedHome, shadowHomePath: shadowHome }),
+            );
 
-          yield* materializeCodexShadowHome(layout);
-          expect(yield* fileSystem.readFileString(shadowMetadata)).toBe("shadow Finder metadata");
-          yield* fileSystem.remove(shadowMetadata);
-          yield* materializeCodexShadowHome(layout);
-          expect(yield* fileSystem.exists(shadowMetadata)).toBe(false);
+            yield* materializeCodexShadowHome(layout);
+            yield* writeTextFile(sharedMetadata, "shared metadata");
+            yield* materializeCodexShadowHome(layout);
+            expect(yield* fileSystem.readFileString(shadowMetadata)).toBe("shadow metadata");
+            yield* fileSystem.remove(shadowMetadata);
+            yield* materializeCodexShadowHome(layout);
+            expect(yield* fileSystem.exists(shadowMetadata)).toBe(false);
 
-          yield* writeTextFile(shadowMetadata, "shadow Finder metadata");
-          yield* materializeCodexShadowHome(layout);
-          yield* materializeCodexShadowHome(layout);
+            yield* writeTextFile(shadowMetadata, "shadow metadata");
+            yield* materializeCodexShadowHome(layout);
+            yield* materializeCodexShadowHome(layout);
 
-          expect(yield* fileSystem.readFileString(sharedMetadata)).toBe("shared Finder metadata");
-          expect(yield* fileSystem.readFileString(shadowMetadata)).toBe("shadow Finder metadata");
-          expect(yield* fileSystem.readFileString(path.join(shadowHome, "auth.json"))).toBe(
-            '{"shadow":true}\n',
-          );
-          expect(yield* fileSystem.readLink(path.join(shadowHome, "sessions"))).toBe(
-            path.join(sharedHome, "sessions"),
-          );
-        }),
-    );
+            expect(yield* fileSystem.readFileString(sharedMetadata)).toBe("shared metadata");
+            expect(yield* fileSystem.readFileString(shadowMetadata)).toBe("shadow metadata");
+            expect(yield* fileSystem.readFileString(path.join(shadowHome, "auth.json"))).toBe(
+              '{"shadow":true}\n',
+            );
+            expect(yield* fileSystem.readLink(path.join(shadowHome, "sessions"))).toBe(
+              path.join(sharedHome, "sessions"),
+            );
+          }),
+      );
+    }
 
     it.effect.skipIf(!symlinksSupported)(
       "materializes a shadow home with shared state links and private auth",

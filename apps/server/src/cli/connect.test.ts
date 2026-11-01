@@ -17,6 +17,7 @@ import { Command } from "effect/cli";
 
 import { makeCli } from "../binCli.ts";
 import { CLOUD_CLI_DESIRED_LINK_SECRET } from "../cloud/CliState.ts";
+import { CLOUD_ENDPOINT_RUNTIME_CONFIG } from "../cloud/config.ts";
 import {
   makePersistedServerRuntimeState,
   persistServerRuntimeState,
@@ -33,6 +34,7 @@ const managedExecutable = {
 const statusBase = {
   desired: false,
   exposed: false,
+  managedTunnelConfigured: false,
   authenticated: false,
   linked: false,
   revoked: false,
@@ -50,6 +52,7 @@ it.each([
     status: {
       ...statusBase,
       exposed: true,
+      managedTunnelConfigured: true,
       linked: true,
       reachability: {
         status: "reachable",
@@ -63,9 +66,22 @@ it.each([
   },
   {
     label: "a desktop link with the app closed says no server answered and asks for no sign-in",
-    status: { ...statusBase, exposed: true, linked: true },
+    status: { ...statusBase, exposed: true, managedTunnelConfigured: true, linked: true },
     lines: ["  Exposure: enabled", "No running server answered"],
     absent: ["Next:"],
+  },
+  {
+    label:
+      "a desktop link without a tunnel explains the account limit without asking for CLI sign-in",
+    status: { ...statusBase, linked: true },
+    lines: ["Managed tunnel: not configured", "account's tunnel limit", "free a tunnel"],
+    absent: ["Next: Run", "No running server answered", "service restart"],
+  },
+  {
+    label: "a requested CLI tunnel without a config is not reported as provisioned",
+    status: { ...statusBase, desired: true, exposed: true, linked: true, authenticated: true },
+    lines: ["Managed tunnel: not configured", "account's tunnel limit"],
+    absent: ["Next: Run", "No running server answered", "service restart"],
   },
   {
     label: "a publish-only link exposes nothing and needs no sign-in or reachability check",
@@ -177,11 +193,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer))
           state: { ...state, pid: recordedPid },
         });
         if (options?.command === "status") {
-          // Status asks the server for reachability only for a managed link.
+          // Status asks the server for reachability only for a managed link with a tunnel config.
           yield* fs.makeDirectory(`${baseDir}/userdata/secrets`, { recursive: true });
           yield* fs.writeFileString(
             `${baseDir}/userdata/secrets/${CLOUD_CLI_DESIRED_LINK_SECRET}.bin`,
             options.linkMode ?? "managed",
+          );
+          yield* fs.writeFileString(
+            `${baseDir}/userdata/secrets/${CLOUD_ENDPOINT_RUNTIME_CONFIG}.bin`,
+            "{}",
           );
         }
 

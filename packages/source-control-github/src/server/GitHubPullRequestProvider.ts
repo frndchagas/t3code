@@ -15,6 +15,7 @@ import type {
 } from "@t3tools/contracts";
 
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
+import * as GitHubAccountRouting from "./GitHubAccountRouting.ts";
 import * as GitHubPullRequestApi from "./GitHubPullRequestApi.ts";
 import {
   PullRequestProviderError,
@@ -236,7 +237,10 @@ const rendersEmpty = (body: string): boolean =>
   body.replace(/<!--[\s\S]*?-->/g, "").trim().length === 0;
 
 export const make = Effect.gen(function* () {
-  const cli = yield* GitHubPullRequestApi.GitHubPullRequestApi;
+  const cli = GitHubAccountRouting.withRoutedReads(
+    yield* GitHubPullRequestApi.GitHubPullRequestApi,
+    yield* GitHubAccountRouting.GitHubAccountRouting,
+  );
 
   // GitHub does not index every repository for search: a renamed one answers for its old name
   // with silence rather than with an error. Where search has any pull request for a repository it

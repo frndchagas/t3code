@@ -50,8 +50,10 @@ jobs:
   # have already run. Scheduled runs also decide here whether a nightly is due.
   resolve_commit:
     name: Resolve release commit
-    if: github.repository == 'pingdotgg/t3code'
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    # frndchagas/t3code cuts nightlies by hand from fork/nightly; everything
+    # that publishes outside the fork stays gated on the upstream repository.
+    if: github.repository == 'pingdotgg/t3code' || (github.repository == 'frndchagas/t3code' && github.event_name == 'workflow_dispatch')
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     outputs:
       ref: ${{ steps.resolve.outputs.ref }}
@@ -86,7 +88,11 @@ jobs:
                 ? dispatchChannel
                 : 'stable';
 
-            await assertReleaseSource({ github, context, releaseChannel });
+            if (`${context.repo.owner}/${context.repo.repo}` === 'pingdotgg/t3code') {
+              await assertReleaseSource({ github, context, releaseChannel });
+            } else if (releaseChannel !== 'nightly' || context.ref !== 'refs/heads/fork/nightly') {
+              throw new Error(`Fork releases must be the nightly channel dispatched from fork/nightly; got ${releaseChannel} from ${context.ref}.`);
+            }
 
             if (context.eventName === 'schedule') {
               core.setOutput('has_changes', await shouldReleaseNightly({ github, context, core }));
@@ -107,7 +113,7 @@ jobs:
     if: |
       needs.resolve_commit.result == 'success' &&
       (github.event_name != 'schedule' || needs.resolve_commit.outputs.has_changes == 'true')
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 10
     outputs:
       release_channel: ${{ steps.release_meta.outputs.release_channel }}
@@ -121,6 +127,32 @@ jobs:
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
       ref: ${{ needs.resolve_commit.outputs.ref }}
     steps:
+      - name: Require macOS signing configuration on the fork
+        if: github.repository != 'pingdotgg/t3code'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          # Installed fork builds only accept updates signed by this team.
+          if [[ "$APPLE_TEAM_ID" != "9S22UD299H" ]]; then
+            echo "::error::Variable APPLE_TEAM_ID must be 9S22UD299H, the team that signs installed fork builds."
+            exit 1
+          fi
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_PROVISIONING_PROFILE; do
+            [[ -n "${!name:-}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing macOS signing secrets: ${missing[*]}"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -235,8 +267,8 @@ jobs:
     name: Release quality checks
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 10
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ github.repository == 'pingdotgg/t3code' && 10 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -266,7 +298,7 @@ jobs:
   test:
     name: Release tests
     needs: [preflight]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
@@ -302,7 +334,7 @@ jobs:
   test_web:
     name: Release web tests
     needs: [preflight]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 10
     steps:
@@ -356,7 +388,7 @@ jobs:
   test_server:
     name: Release server tests ${{ matrix.shard }}
     needs: [preflight]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     strategy:
@@ -395,14 +427,14 @@ jobs:
     if: |
       needs.resolve_commit.result == 'success' &&
       (github.event_name != 'schedule' || needs.resolve_commit.outputs.has_changes == 'true')
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     # Previews build any branch, but production admits only main and v* tags.
     # The empty name runs previews with no environment, so their Clerk and relay
     # ids come from .env.example. Everything else matches nightly: the tracing
     # read below needs only repository-level Cloudflare credentials.
     environment:
-      name: ${{ inputs.channel != 'preview' && 'production' || '' }}
+      name: ${{ github.repository == 'pingdotgg/t3code' && inputs.channel != 'preview' && 'production' || '' }}
     outputs:
       clerk_publishable_key: ${{ steps.public_config.outputs.clerk_publishable_key }}
       clerk_jwt_template: ${{ steps.public_config.outputs.clerk_jwt_template }}
@@ -438,6 +470,7 @@ jobs:
       # Redacted values are persisted as
       # {"__redacted__": "<value>"}; the token is masked before it is written.
       - name: Read production relay tracing config
+        if: github.repository == 'pingdotgg/t3code'
         shell: bash
         working-directory: infra/relay
         run: |
@@ -458,6 +491,7 @@ jobs:
           } > "$RUNNER_TEMP/relay-client-tracing.env"
 
       - name: Upload relay client tracing config
+        if: github.repository == 'pingdotgg/t3code'
         uses: actions/upload-artifact@v7
         with:
           name: relay-client-tracing-config
@@ -469,7 +503,7 @@ jobs:
         name: Resolve production relay public config
         shell: bash
         env:
-          PREVIEW: ${{ inputs.channel == 'preview' }}
+          PREVIEW: ${{ inputs.channel == 'preview' || github.repository != 'pingdotgg/t3code' }}
         run: |
           set -euo pipefail
 
@@ -517,8 +551,8 @@ jobs:
     # this runs alongside preflight. See the condition comment there.
     needs: [preflight, relay_public_config]
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' }}
-    runs-on: blacksmith-32vcpu-ubuntu-2404
-    timeout-minutes: 30
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ github.repository == 'pingdotgg/t3code' && 30 || 60 }}
     outputs:
       npm_launcher_artifact_id: ${{ steps.npm_launcher.outputs.artifact-id }}
     env:
@@ -553,12 +587,14 @@ jobs:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
 
       - name: Download relay client tracing config
+        if: github.repository == 'pingdotgg/t3code'
         uses: actions/download-artifact@v8
         with:
           name: relay-client-tracing-config
           path: ${{ runner.temp }}/relay-client-tracing
 
       - name: Load relay client tracing config
+        if: github.repository == 'pingdotgg/t3code'
         shell: bash
         run: |
           config_path="$RUNNER_TEMP/relay-client-tracing/relay-client-tracing.env"
@@ -647,7 +683,7 @@ jobs:
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
       label: macOS arm64
-      runner: blacksmith-12vcpu-macos-26
+      runner: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-12vcpu-macos-26' || 'macos-26' }}
       platform: mac
       target: dmg
       arch: arm64
@@ -657,11 +693,12 @@ jobs:
       launch_check: true
       # desktop_mac_x64 saves the shared pnpm store; this job finishes last.
       save_pnpm_store: false
+      relay_client_tracing: ${{ github.repository == 'pingdotgg/t3code' }}
 
   desktop_mac_x64:
     name: Desktop macOS x64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -687,7 +724,7 @@ jobs:
   desktop_linux_x64:
     name: Desktop Linux x64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -713,7 +750,7 @@ jobs:
   desktop_linux_arm64:
     name: Desktop Linux arm64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -741,7 +778,7 @@ jobs:
   desktop_win_x64:
     name: Desktop Windows x64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -765,7 +802,7 @@ jobs:
   desktop_win_arm64:
     name: Desktop Windows arm64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -803,8 +840,8 @@ jobs:
         desktop_win_x64,
         desktop_win_arm64,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' }}
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.desktop_mac_arm64.result == 'success' && (github.repository != 'pingdotgg/t3code' || (needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success')) }}
+    runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -937,9 +974,11 @@ jobs:
             echo 'files<<EOF'
             echo 'release-assets/*.dmg'
             echo 'release-assets/*.zip'
-            echo 'release-assets/*.AppImage'
-            echo 'release-assets/*.deb'
-            echo 'release-assets/*.exe'
+            if [[ "$GITHUB_REPOSITORY" == "pingdotgg/t3code" ]]; then
+              echo 'release-assets/*.AppImage'
+              echo 'release-assets/*.deb'
+              echo 'release-assets/*.exe'
+            fi
             if [[ "${{ needs.preflight.outputs.release_channel }}" != "preview" ]]; then
               echo 'release-assets/*.blockmap'
               echo 'release-assets/*.yml'
@@ -1046,7 +1085,7 @@ jobs:
   publish_cli:
     name: Publish CLI to npm
     needs: [preflight, build_bundle, release]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' }}
     runs-on: ubuntu-24.04 # blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 15
     permissions:
@@ -1111,7 +1150,7 @@ jobs:
   publish_aur:
     name: Publish AUR package
     needs: [preflight, release]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
     uses: ./.github/workflows/publish-aur.yml
     with:
       release_tag: ${{ needs.preflight.outputs.tag }}
@@ -1127,7 +1166,7 @@ jobs:
   build_web:
     name: Build hosted web app
     needs: [preflight, relay_public_config]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.preflight.outputs.release_channel != 'preview' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 10
     outputs:
@@ -1303,7 +1342,7 @@ jobs:
   build_marketing:
     name: Build marketing site
     needs: [preflight]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.release_channel == 'nightly' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 10
     outputs:
@@ -1412,7 +1451,7 @@ jobs:
 
   finalize:
     name: Finalize release
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'stable' }}
+    if: ${{ github.repository == 'pingdotgg/t3code' && !failure() && !cancelled() && needs.preflight.result == 'success' && needs.release.result == 'success' && needs.preflight.outputs.release_channel == 'stable' }}
     needs: [preflight, release]
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 10

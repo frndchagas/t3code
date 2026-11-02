@@ -760,6 +760,63 @@ describe("PullRequestSyncReactor", () => {
       ),
   );
 
+  it.effect("waits longer after each not-found read but still honours a requested refresh", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const link = makeLink(42);
+        let failing = true;
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([makeThread("hidden", { pullRequests: [link] })]),
+          summary: (input) =>
+            failing
+              ? Effect.fail(
+                  new PullRequestOperationError({
+                    operation: "summary",
+                    detail: "GitHub could not find it",
+                    reason: "not-found",
+                  }),
+                )
+              : Effect.succeed(makeSummary(input)),
+        });
+        yield* Effect.gen(function* () {
+          const reads = Ref.get(fixture.summaryCalls).pipe(Effect.map((calls) => calls.length));
+          const sweep = (times: number) =>
+            Effect.forEach(Array.from({ length: times }), () => sweepAgain(fixture, reactor), {
+              discard: true,
+            });
+          const reactor = yield* startAndSweep(fixture);
+          assert.strictEqual(yield* reads, 1);
+
+          yield* sweep(4);
+          assert.strictEqual(yield* reads, 1, "quiet for the first five minutes");
+          yield* sweep(1);
+          assert.strictEqual(yield* reads, 2, "reads again once they pass");
+          yield* sweep(9);
+          assert.strictEqual(yield* reads, 2, "the wait doubles after another miss");
+          yield* sweep(1);
+          assert.strictEqual(yield* reads, 3);
+
+          yield* reactor.requestSync(link);
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          assert.strictEqual(yield* reads, 4, "a requested refresh does not wait");
+          yield* sweep(1);
+          assert.strictEqual(yield* reads, 4, "and a missed refresh does not repeat every sweep");
+
+          failing = false;
+          yield* reactor.requestSync(link);
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          assert.strictEqual(yield* reads, 5);
+          assert.strictEqual((yield* Ref.get(fixture.syncCommands)).length, 1);
+          yield* sweep(1);
+          assert.strictEqual(yield* reads, 6, "an answer clears the wait");
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect("recovers the HTTP port when syncing an older Forgejo link", () =>
     Effect.scoped(
       Effect.gen(function* () {

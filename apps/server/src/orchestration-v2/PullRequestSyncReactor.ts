@@ -1,6 +1,7 @@
 import {
   CommandId,
   isOrchestrationV2WorkActive,
+  PullRequestOperationError,
   type OrchestrationV2TurnItem,
   type PullRequestSummary,
   type ThreadId,
@@ -44,6 +45,9 @@ const SLOW_SYNC_INTERVAL_MS = 15 * 60 * 1_000;
 // requested refreshes, watches and a host CLI's merge command still read it at once.
 const QUIET_AFTER_MS = 30 * 60 * 1_000;
 const QUIET_SYNC_INTERVAL_MS = 5 * 60 * 1_000;
+// No credential sees it, so the next sweep will not either; a requested refresh still reads at once.
+const NOT_FOUND_BACKOFF_MIN_MS = 5 * 60 * 1_000;
+const NOT_FOUND_BACKOFF_MAX_MS = 60 * 60 * 1_000;
 
 const isChangeRequestCloseCommand = (command: string) =>
   sourceControlDefinitions.definitions.some(
@@ -172,6 +176,7 @@ export function changeRequestsCreatedBy(input: string, output: string) {
 }
 
 const isPullRequestProviderError = Schema.is(PullRequestProviderError);
+const isPullRequestOperationError = Schema.is(PullRequestOperationError);
 
 type SnapshotFields = Omit<ThreadPullRequestSnapshot, "syncedAt">;
 
@@ -313,6 +318,20 @@ function rateLimitRetryAt(cause: Cause.Cause<unknown>): number | undefined {
   return undefined;
 }
 
+function isNotFound(cause: Cause.Cause<unknown>): boolean {
+  let error: unknown = Cause.squash(cause);
+  while (error instanceof Error) {
+    if (
+      (isPullRequestProviderError(error) || isPullRequestOperationError(error)) &&
+      error.reason === "not-found"
+    ) {
+      return true;
+    }
+    error = error.cause;
+  }
+  return false;
+}
+
 function isUnsettled(thread: ProjectionStore.ProjectionThreadPullRequests): boolean {
   return thread.settledOverride !== "settled" && thread.settledAt === null;
 }
@@ -345,9 +364,12 @@ export const make = Effect.gen(function* () {
   const retryStacks = new Set<string>();
   // Pause per project and host because credentials are project-specific; leave paused PRs due until reset.
   const pausedUntil = new Map<string, number>();
+  const notFoundBackoff = new Map<string, { readonly delayMs: number; readonly untilMs: number }>();
 
   const isDue = (key: string, entries: ReadonlyArray<LinkEntry>, nowMs: number): boolean => {
-    if (requested.has(key) || retryStacks.has(key)) return true;
+    if (requested.has(key)) return true;
+    if ((notFoundBackoff.get(key)?.untilMs ?? 0) > nowMs) return false;
+    if (retryStacks.has(key)) return true;
     if (entries.some((entry) => entry.link.snapshot === null)) return true;
     const active = entries.filter((entry) => isUnsettled(entry.thread));
     // Merged snapshots without mergedAt cannot settle threads; reread slowly until supplied.
@@ -402,6 +424,7 @@ export const make = Effect.gen(function* () {
     for (const key of lastSyncedAt.keys()) if (!groups.has(key)) lastSyncedAt.delete(key);
     for (const key of retryStacks) if (!groups.has(key)) retryStacks.delete(key);
     for (const key of requested.keys()) if (!groups.has(key)) requested.delete(key);
+    for (const key of notFoundBackoff.keys()) if (!groups.has(key)) notFoundBackoff.delete(key);
 
     const linkedThisSweep = new Set<string>();
     // Fresh stack reads by group, so a member flagged by a sibling is compared against what the
@@ -561,6 +584,7 @@ export const make = Effect.gen(function* () {
       // The host answered, so the cadence clock ticks even if a dispatch below is rejected.
       lastSyncedAt.set(key, nowMs);
       requested.delete(key);
+      notFoundBackoff.delete(key);
       yield* Effect.forEach(
         entries,
         (entry) =>
@@ -585,6 +609,15 @@ export const make = Effect.gen(function* () {
           const retryAt = rateLimitRetryAt(cause);
           if (retryAt !== undefined) {
             pausedUntil.set(pauseKey, Math.max(retryAt, pausedUntil.get(pauseKey) ?? 0));
+          }
+          if (isNotFound(cause)) {
+            const previous = notFoundBackoff.get(key)?.delayMs;
+            const delayMs =
+              previous === undefined
+                ? NOT_FOUND_BACKOFF_MIN_MS
+                : Math.min(previous * 2, NOT_FOUND_BACKOFF_MAX_MS);
+            notFoundBackoff.set(key, { delayMs, untilMs: nowMs + delayMs });
+            requested.delete(key);
           }
           const reason = skipReason(cause);
           const skip = skips.get(reason);

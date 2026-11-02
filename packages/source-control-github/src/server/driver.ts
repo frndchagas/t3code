@@ -10,6 +10,7 @@ import { HttpClient } from "effect/http";
 
 import { definition } from "../shared/definition.ts";
 
+import * as GitHubAccountRouting from "./GitHubAccountRouting.ts";
 import * as GitHubAppAccess from "./GitHubAppAccess.ts";
 import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
 import * as GitHubMediaFetch from "./gitHubMediaFetch.ts";
@@ -21,8 +22,9 @@ import * as GitHubSourceControlProvider from "./GitHubSourceControlProvider.ts";
 
 // `GitHubRest.layerWithDependencies` carries the quota reserve every GitHub reader shares, so it
 // must be built once; the driver is.
-const services = GitHubPullRequestApi.layer.pipe(
+export const services = GitHubPullRequestApi.layer.pipe(
   Layer.provideMerge(GitHubAppAccess.layer),
+  Layer.provideMerge(GitHubAccountRouting.layer),
   Layer.provideMerge(GitHubRest.layerWithDependencies),
   Layer.provideMerge(GitHubHttpClient.layer),
 );

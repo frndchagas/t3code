@@ -230,6 +230,73 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("SessionStore.lay
     }).pipe(Effect.scoped, Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
+  it.effect("renews a used browser session in place once it is within 15 days of expiry", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const browser = yield* sessions.issue({
+        client: { label: "Phone PWA", deviceType: "mobile" },
+      });
+      const bearer = yield* sessions.issue({ method: "bearer-access-token" });
+      const revoked = yield* sessions.issue();
+      yield* sessions.revoke(revoked.sessionId);
+
+      yield* TestClock.adjust(Duration.days(14));
+      expect(
+        Option.isNone(yield* sessions.renewBrowserSession(yield* sessions.verify(browser.token))),
+      ).toBe(true);
+
+      yield* TestClock.adjust(Duration.days(2));
+      const verified = yield* sessions.verify(browser.token);
+      const renewed = yield* sessions.renewBrowserSession(verified);
+      expect(
+        Option.isNone(yield* sessions.renewBrowserSession(yield* sessions.verify(bearer.token))),
+      ).toBe(true);
+      expect(
+        Option.isNone(
+          yield* sessions.renewBrowserSession({ ...verified, sessionId: revoked.sessionId }),
+        ),
+      ).toBe(true);
+
+      const fresh = Option.getOrThrow(renewed);
+      expect(fresh.expiresAt.epochMilliseconds).toBe(
+        browser.expiresAt.epochMilliseconds + Duration.toMillis(Duration.days(16)),
+      );
+      const listed = (yield* sessions.listActive()).find(
+        (session) => session.sessionId === browser.sessionId,
+      );
+      expect(listed?.client.label).toBe("Phone PWA");
+      expect(listed?.expiresAt.epochMilliseconds).toBe(fresh.expiresAt.epochMilliseconds);
+
+      // Past the original deadline only the renewed cookie works, and it is the same session.
+      yield* TestClock.adjust(Duration.days(15));
+      expect((yield* Effect.flip(sessions.verify(browser.token)))._tag).toBe(
+        "SessionTokenExpiredError",
+      );
+      expect((yield* sessions.verify(fresh.token)).sessionId).toBe(browser.sessionId);
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
+  it.effect("keeps a browser socket open past its original deadline after renewal", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const browser = yield* sessions.issue();
+      yield* sessions.markConnected(browser.sessionId);
+      const invalidated = yield* Deferred.make<void>();
+      const watcher = yield* sessions
+        .awaitInvalidation(browser.sessionId)
+        .pipe(
+          Effect.andThen(Deferred.succeed(invalidated, undefined)),
+          Effect.forkScoped({ startImmediately: true }),
+        );
+      yield* TestClock.adjust(Duration.days(20));
+      yield* sessions.renewBrowserSession(yield* sessions.verify(browser.token));
+      yield* TestClock.adjust(Duration.subtract(Duration.days(30), Duration.millis(1)));
+      expect(yield* Deferred.isDone(invalidated)).toBe(false);
+      yield* TestClock.adjust(Duration.millis(1));
+      yield* Fiber.join(watcher);
+    }).pipe(Effect.scoped, Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
   it.effect("keys remote cookies by environment identity instead of state directory", () =>
     Effect.gen(function* () {
       const cookieName = (stateDir: string, environmentId: EnvironmentId) =>

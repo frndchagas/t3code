@@ -387,6 +387,13 @@ export class SessionStore extends Context.Service<
       readonly replaceSessionId?: AuthSessionId;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
     readonly verify: (token: string) => Effect.Effect<VerifiedSession, SessionCredentialError>;
+    /** Re-signs a browser cookie session near expiry under the same id, so used sessions never lapse. */
+    readonly renewBrowserSession: (
+      session: VerifiedSession,
+    ) => Effect.Effect<
+      Option.Option<{ readonly token: string; readonly expiresAt: DateTime.DateTime }>,
+      SessionCredentialInternalError
+    >;
     readonly issueWebSocketToken: (
       sessionId: AuthSessionId,
       input?: {
@@ -428,6 +435,14 @@ export class SessionStore extends Context.Service<
 const SIGNING_SECRET_NAME = "server-signing-key";
 const DEFAULT_SESSION_TTL = Duration.days(30);
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
+const BROWSER_SESSION_RENEW_WITHIN = Duration.days(15);
+
+export const isBrowserSessionDueForRenewal = (
+  expiresAt: DateTime.DateTime,
+  now: DateTime.DateTime,
+) =>
+  expiresAt.epochMilliseconds - now.epochMilliseconds <=
+  Duration.toMillis(BROWSER_SESSION_RENEW_WITHIN);
 
 const SessionClaims = Schema.Struct({
   v: Schema.Literals([1, 2]),
@@ -747,6 +762,71 @@ const make = Effect.gen(function* () {
       } satisfies IssuedSession;
     },
   );
+
+  const renewBrowserSession: SessionStore["Service"]["renewBrowserSession"] = Effect.fn(
+    "SessionStore.renewBrowserSession",
+  )(function* (session) {
+    if (
+      session.method !== "browser-session-cookie" ||
+      session.expiresAt === undefined ||
+      devAuth?.matches(session.token)
+    ) {
+      return Option.none();
+    }
+    const now = yield* DateTime.now;
+    if (!isBrowserSessionDueForRenewal(session.expiresAt, now)) {
+      return Option.none();
+    }
+    const expiresAt = DateTime.add(now, { milliseconds: Duration.toMillis(DEFAULT_SESSION_TTL) });
+    const extended = yield* authSessions
+      .extend({ sessionId: session.sessionId, expiresAt, now })
+      .pipe(
+        Effect.mapError(
+          (cause) => new SessionCredentialIssueError({ sessionId: session.sessionId, cause }),
+        ),
+      );
+    if (!extended) {
+      return Option.none();
+    }
+    const claims: SessionClaims = {
+      v: 1,
+      kind: "session",
+      sid: session.sessionId,
+      sub: session.subject,
+      scopes: session.scopes,
+      method: session.method,
+      ...(session.runtimeModeCeiling ? { rtc: session.runtimeModeCeiling } : {}),
+      ...(session.peerLink === true ? { plk: 1 as const } : {}),
+      iat: now.epochMilliseconds,
+      exp: expiresAt.epochMilliseconds,
+    };
+    const encodedPayload = yield* encodeClaims(claims).pipe(
+      Effect.map(base64UrlEncode),
+      Effect.mapError(
+        (cause) =>
+          new SessionCredentialIssueError({
+            sessionId: session.sessionId,
+            cause: new SessionClaimsEncodingError({
+              sessionId: session.sessionId,
+              operation: "encode_session_claims",
+              cause,
+            }),
+          }),
+      ),
+    );
+    const clientSession = yield* loadActiveSession(session.sessionId).pipe(
+      Effect.mapError(
+        (cause) => new SessionCredentialIssueError({ sessionId: session.sessionId, cause }),
+      ),
+    );
+    if (Option.isSome(clientSession)) {
+      yield* emitUpsert(clientSession.value);
+    }
+    return Option.some({
+      token: `${encodedPayload}.${signPayload(encodedPayload, signingSecret)}`,
+      expiresAt,
+    });
+  });
 
   const verify: SessionStore["Service"]["verify"] = Effect.fn("SessionStore.verify")(
     function* (token) {
@@ -1072,6 +1152,8 @@ const make = Effect.gen(function* () {
         while (true) {
           const rows = yield* Effect.forEach(chain, readRow);
           if (rows.some((row) => Option.isNone(row) || row.value.revokedAt !== null)) return;
+          const latest = rows.at(-1);
+          if (latest !== undefined && Option.isSome(latest)) current = latest.value;
           const now = yield* DateTime.now;
           const remaining = current.expiresAt.epochMilliseconds - now.epochMilliseconds;
           if (remaining > 0) {
@@ -1104,6 +1186,7 @@ const make = Effect.gen(function* () {
     legacyCookieName,
     issue,
     verify,
+    renewBrowserSession,
     issueWebSocketToken,
     verifyWebSocketToken,
     listActive,

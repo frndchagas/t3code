@@ -9,7 +9,9 @@ import {
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -25,7 +27,12 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as AuthHttp from "./http.ts";
+import * as SessionStore from "./SessionStore.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+
+class RenewalRequestError extends Schema.TaggedError<RenewalRequestError>()("RenewalRequestError", {
+  cause: Schema.Defect(),
+}) {}
 
 const DEV_TOKEN = "reusable-dev-auth-token-that-is-long-enough";
 class AuthTestApi extends HttpApi.make("environment").add(EnvironmentHttpApi.groups.auth) {}
@@ -72,16 +79,17 @@ const postJson = (path: string, body: unknown, headers?: Readonly<Record<string,
     body: encodeJson(body),
   });
 
+const unusedSecretStore = ServerSecretStore.ServerSecretStore.of({
+  get: () => Effect.succeedNone,
+  set: () => Effect.void,
+  create: () => Effect.void,
+  getOrCreateRandom: () => Effect.die("Not used by these routes."),
+  remove: () => Effect.void,
+});
+
 it.effect("sets the selected browser session cookies through the HTTP route", () =>
   Effect.gen(function* () {
     const random = yield* SecureRandom.SecureRandom;
-    const unusedSecretStore = ServerSecretStore.ServerSecretStore.of({
-      get: () => Effect.succeedNone,
-      set: () => Effect.void,
-      create: () => Effect.void,
-      getOrCreateRandom: () => Effect.die("Not used by these routes."),
-      remove: () => Effect.void,
-    });
     const requestContext = Context.make(SecureRandom.SecureRandom, random).pipe(
       Context.add(ServerSecretStore.ServerSecretStore, unusedSecretStore),
     );
@@ -190,4 +198,108 @@ it.effect.each(["DPoP", "dpop"])("challenges a refused %s request with DPoP", (s
       (environment) => Effect.promise(() => environment.dispose()),
     );
   }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+);
+
+// Live clock: the web handler runs its own runtime on wall-clock time, not the TestClock.
+it.live("refreshes the browser session cookie on use once it is close to expiry", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-auth-http-renew-" });
+    const paths = yield* ServerConfig.deriveServerPaths(baseDir, undefined, {
+      baseDirIsExplicit: true,
+    });
+    yield* ServerConfig.ensureServerDirectories(paths);
+    // Built once so the issuing store and the routes agree on port, secrets, and cookie name.
+    const baseConfig = yield* ServerConfig.ServerConfig.pipe(
+      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-http-renew-" })),
+    );
+    const layerDiskConfig = Layer.succeed(ServerConfig.ServerConfig, {
+      ...baseConfig,
+      ...paths,
+      baseDir,
+      mode: "web",
+    });
+    const layerDiskState = Layer.mergeAll(
+      SqlitePersistence.layerFromPath(paths.dbPath),
+      ServerSecretStore.layer,
+      ServerEnvironment.layerIdentity,
+    ).pipe(Layer.provideMerge(layerDiskConfig));
+
+    const { cookieName, fresh, expiring } = yield* Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      return {
+        cookieName: sessions.cookieName,
+        fresh: yield* sessions.issue(),
+        expiring: yield* sessions.issue({ ttl: Duration.days(10) }),
+      };
+    }).pipe(Effect.provide(SessionStore.layer.pipe(Layer.provide(layerDiskState))));
+
+    const routes = HttpApiBuilder.layer(AuthTestApi).pipe(
+      Layer.provide(AuthHttp.layer),
+      Layer.provide(AuthHttp.layerAuthenticatedAuth),
+      Layer.provideMerge(
+        EnvironmentAuth.layer.pipe(
+          Layer.provide(ManagedPolicy.layerTest()),
+          Layer.provide(layerDiskState),
+        ),
+      ),
+      Layer.provideMerge(
+        HttpPlatform.layer.pipe(
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+          Layer.provideMerge(Etag.layerWeak),
+        ),
+      ),
+      Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+    );
+    const random = yield* SecureRandom.SecureRandom;
+    const requestContext = Context.make(SecureRandom.SecureRandom, random).pipe(
+      Context.add(ServerSecretStore.ServerSecretStore, unusedSecretStore),
+    );
+    const renewedCookie = (response: Response) =>
+      response.headers.getSetCookie().find((cookie) => cookie.startsWith(`${cookieName}=`));
+
+    return yield* Effect.acquireUseRelease(
+      Effect.sync(() => HttpRouter.toWebHandler(routes, { disableLogger: true })),
+      (environment) =>
+        Effect.tryPromise({
+          try: async () => {
+            const call = (request: Request) => environment.handler(request, requestContext);
+            const session = (token: string) =>
+              call(
+                new Request("http://127.0.0.1/api/auth/session", {
+                  headers: { cookie: `${cookieName}=${token}` },
+                }),
+              );
+
+            const freshResponse = await session(fresh.token);
+            expect(await freshResponse.json()).toMatchObject({ authenticated: true });
+            expect(renewedCookie(freshResponse)).toBeUndefined();
+
+            const sessionResponse = await session(expiring.token);
+            const sessionBody = (await sessionResponse.json()) as { expiresAt: string };
+            expect(Date.parse(sessionBody.expiresAt)).toBeGreaterThan(
+              expiring.expiresAt.epochMilliseconds,
+            );
+            const sessionCookie = renewedCookie(sessionResponse);
+            expect(sessionCookie).toContain("HttpOnly");
+            expect(sessionCookie).not.toContain(`=${expiring.token};`);
+
+            const ticketResponse = await call(
+              new Request("http://127.0.0.1/api/auth/websocket-ticket", {
+                method: "POST",
+                headers: { cookie: `${cookieName}=${expiring.token}` },
+              }),
+            );
+            expect(ticketResponse.status).toBe(200);
+            expect(renewedCookie(ticketResponse)).toContain("HttpOnly");
+
+            const renewedToken =
+              sessionCookie?.split(";", 1)[0]?.slice(cookieName.length + 1) ?? "";
+            expect(renewedCookie(await session(renewedToken))).toBeUndefined();
+          },
+          catch: (cause) => new RenewalRequestError({ cause }),
+        }),
+      (environment) => Effect.promise(() => environment.dispose()),
+    );
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

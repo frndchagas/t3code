@@ -240,6 +240,24 @@ const appendSessionCookie = (
     ),
   );
 
+const appendRenewedBrowserSessionCookie = (
+  serverAuth: EnvironmentAuth.EnvironmentAuth["Service"],
+  request: HttpServerRequest.HttpServerRequest,
+  session: Pick<EnvironmentAuth.AuthenticatedSession, "method" | "expiresAt">,
+) =>
+  serverAuth.renewBrowserSessionCookie(request, session).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeedNone,
+        onSome: (renewed) =>
+          appendSessionCookie(request, renewed.cookieName, renewed.token, renewed.expiresAt).pipe(
+            Effect.andThen(appendCredentialResponseHeaders),
+            Effect.as(Option.some(DateTime.toUtc(renewed.expiresAt))),
+          ),
+      }),
+    ),
+  );
+
 export const requireEnvironmentScope = Effect.fn("environment.auth.requireScope")(function* (
   scope: AuthEnvironmentScope,
 ) {
@@ -270,6 +288,7 @@ export const layerAuthenticatedAuth = Layer.effect(
           ),
         );
         const endTime = yield* Clock.currentTimeNanos;
+        yield* appendRenewedBrowserSessionCookie(serverAuth, request, session);
         const handler = httpEffect.pipe(
           Effect.provideService(EnvironmentAuthenticatedPrincipal, {
             ...session,
@@ -316,6 +335,19 @@ export const layer = HttpApiBuilder.group(
                 result.expiresAt,
               );
               yield* appendCredentialResponseHeaders;
+            }
+            if (credential?.source === "cookie" && result.authenticated && result.sessionMethod) {
+              const renewedExpiresAt = yield* appendRenewedBrowserSessionCookie(
+                serverAuth,
+                request,
+                {
+                  method: result.sessionMethod,
+                  ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
+                },
+              );
+              if (Option.isSome(renewedExpiresAt)) {
+                return { ...result, expiresAt: renewedExpiresAt.value };
+              }
             }
             return result;
           },

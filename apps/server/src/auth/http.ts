@@ -26,6 +26,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Cookies from "effect/http/Cookies";
 import * as HttpEffect from "effect/http/HttpEffect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
@@ -216,6 +217,24 @@ const appendSessionCookie = (cookieName: string, token: string, expiresAt: DateT
     ),
   );
 
+const appendRenewedBrowserSessionCookie = (
+  serverAuth: EnvironmentAuth.EnvironmentAuth["Service"],
+  request: HttpServerRequest.HttpServerRequest,
+  session: Pick<EnvironmentAuth.AuthenticatedSession, "method" | "expiresAt">,
+) =>
+  serverAuth.renewBrowserSessionCookie(request, session).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeedNone,
+        onSome: (renewed) =>
+          appendSessionCookie(renewed.cookieName, renewed.token, renewed.expiresAt).pipe(
+            Effect.andThen(appendCredentialResponseHeaders),
+            Effect.as(Option.some(DateTime.toUtc(renewed.expiresAt))),
+          ),
+      }),
+    ),
+  );
+
 export const requireEnvironmentScope = Effect.fn("environment.auth.requireScope")(function* (
   scope: AuthEnvironmentScope,
 ) {
@@ -246,6 +265,7 @@ export const layerAuthenticatedAuth = Layer.effect(
           ),
         );
         const endTime = yield* Clock.currentTimeNanos;
+        yield* appendRenewedBrowserSessionCookie(serverAuth, request, session);
         const handler = httpEffect.pipe(
           Effect.provideService(EnvironmentAuthenticatedPrincipal, {
             ...session,
@@ -287,6 +307,19 @@ export const layer = HttpApiBuilder.group(
             ) {
               yield* appendSessionCookie(sessions.cookieName, credential.token, result.expiresAt);
               yield* appendCredentialResponseHeaders;
+            }
+            if (credential?.source === "cookie" && result.authenticated && result.sessionMethod) {
+              const renewedExpiresAt = yield* appendRenewedBrowserSessionCookie(
+                serverAuth,
+                request,
+                {
+                  method: result.sessionMethod,
+                  ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
+                },
+              );
+              if (Option.isSome(renewedExpiresAt)) {
+                return { ...result, expiresAt: renewedExpiresAt.value };
+              }
             }
             return result;
           },

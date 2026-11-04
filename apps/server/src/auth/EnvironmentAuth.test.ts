@@ -11,8 +11,10 @@ import {
 } from "@t3tools/shared/dpop";
 import { expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 
 import * as ServerConfig from "../config.ts";
@@ -689,6 +691,34 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
         } as never);
         expect(state.authenticated).toBe(false);
       }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web" }))),
+    );
+
+    it.effect("does not renew fresh, bearer, or legacy-cookie sessions", () =>
+      Effect.gen(function* () {
+        const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const fresh = yield* sessions.issue();
+        const expiring = yield* sessions.issue({ ttl: Duration.days(10) });
+        const bearer = yield* sessions.issue({
+          method: "bearer-access-token",
+          ttl: Duration.days(10),
+        });
+        const renew = (cookies: Record<string, string>, headers: Record<string, string> = {}) =>
+          serverAuth
+            .authenticateHttpRequest({ cookies, headers } as never)
+            .pipe(
+              Effect.flatMap((session) =>
+                serverAuth.renewBrowserSessionCookie({ cookies, headers } as never, session),
+              ),
+            );
+
+        expect(Option.isNone(yield* renew({ [sessions.cookieName]: fresh.token }))).toBe(true);
+        expect(Option.isNone(yield* renew({}, { authorization: `Bearer ${bearer.token}` }))).toBe(
+          true,
+        );
+        const legacyCookieName = sessions.legacyCookieName ?? "missing-legacy-cookie";
+        expect(Option.isNone(yield* renew({ [legacyCookieName]: expiring.token }))).toBe(true);
+      }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
     );
 
     it.effect.each(["Bearer", "bearer", "bEaReR"])(

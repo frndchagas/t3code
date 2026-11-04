@@ -69,12 +69,24 @@ export function retryFailedUpdateRunServers(
     options: { readonly quiet: boolean },
   ) => Promise<ServerUpdateOutcome>,
 ): void {
-  const failed = (appAtomRegistry.get(updateEverythingRunAtom)?.machines ?? []).flatMap(
+  const failedServers = (appAtomRegistry.get(updateEverythingRunAtom)?.machines ?? []).flatMap(
     (machine) =>
       machine.result === "failed" && machine.server !== null
         ? [{ target: machine.server, providerFailure: machine.providerFailure }]
         : [],
   );
+  // A server can reach the target outside this run; its updater then refuses as already current.
+  const reachedTarget = ({ target }: (typeof failedServers)[number]) => {
+    const config = appAtomRegistry.get(serverEnvironment.configValueAtom(target.environmentId));
+    return (
+      config !== null &&
+      resolveVersionMismatch(config.environment.serverVersion, target.targetVersion) === null
+    );
+  };
+  for (const { target, providerFailure } of failedServers.filter(reachedTarget)) {
+    settleUpdateRunMachine(target.environmentId, providerFailure, { serverUpdated: true });
+  }
+  const failed = failedServers.filter((server) => !reachedTarget(server));
   const targets = failed.map(({ target }) => target);
   const retried = new Set(targets.map((target) => target.environmentId));
   const startedAt = Date.now();

@@ -534,6 +534,17 @@ export class EnvironmentAuth extends Context.Service<
     readonly authenticateHttpRequest: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
+    /** A fresh cookie when the request's browser session is close to expiring; never fails the request. */
+    readonly renewBrowserSessionCookie: (
+      request: HttpServerRequest.HttpServerRequest,
+      session: Pick<AuthenticatedSession, "method" | "expiresAt">,
+    ) => Effect.Effect<
+      Option.Option<{
+        readonly cookieName: string;
+        readonly token: string;
+        readonly expiresAt: DateTime.DateTime;
+      }>
+    >;
     readonly authenticateWebSocketUpgrade: (
       request: HttpServerRequest.HttpServerRequest,
       use: AuthWebSocketTicketUse,
@@ -1254,6 +1265,32 @@ export const make = Effect.gen(function* () {
         Effect.withSpan("EnvironmentAuth.issueWebSocketTicket"),
       );
 
+  const renewBrowserSessionCookie: EnvironmentAuth["Service"]["renewBrowserSessionCookie"] =
+    Effect.fn("EnvironmentAuth.renewBrowserSessionCookie")(
+      function* (request, session) {
+        if (session.method !== "browser-session-cookie" || session.expiresAt === undefined) {
+          return Option.none();
+        }
+        if (!SessionStore.isBrowserSessionDueForRenewal(session.expiresAt, yield* DateTime.now)) {
+          return Option.none();
+        }
+        // Legacy and dev cookies keep their own migration and lifetime rules.
+        const token = request.cookies[sessions.cookieName];
+        if (token === undefined) {
+          return Option.none();
+        }
+        const verified = yield* sessions.verify(token);
+        const renewed = yield* sessions.renewBrowserSession(verified);
+        return Option.map(renewed, (value) => ({ cookieName: sessions.cookieName, ...value }));
+      },
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not renew browser session cookie.").pipe(
+          Effect.annotateLogs({ cause }),
+          Effect.as(Option.none()),
+        ),
+      ),
+    );
+
   const authenticateHttpRequest: EnvironmentAuth["Service"]["authenticateHttpRequest"] = (
     request,
   ) =>
@@ -1405,6 +1442,7 @@ export const make = Effect.gen(function* () {
     revokeClientSession,
     revokeOtherClientSessions,
     authenticateHttpRequest,
+    renewBrowserSessionCookie,
     authenticateWebSocketUpgrade,
     issueWebSocketTicket,
     issueStartupPairingUrl,

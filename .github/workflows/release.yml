@@ -719,10 +719,12 @@ jobs:
       # on start. The x64 desktop app is Electron and unaffected.
       cli_archive: false
 
+  # The fork also builds this target: installed fork .deb and AppImage builds
+  # read nightly-linux.yml from frndchagas/t3code to update themselves.
   desktop_linux_x64:
     name: Desktop Linux x64
     needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ github.repository == 'pingdotgg/t3code' && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
     uses: ./.github/workflows/release-desktop.yml
     secrets: inherit
     with:
@@ -734,7 +736,7 @@ jobs:
       clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
       relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
       label: Linux x64
-      runner: blacksmith-32vcpu-ubuntu-2404
+      runner: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-32vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
       platform: linux
       target: AppImage
       arch: x64
@@ -838,7 +840,7 @@ jobs:
         desktop_win_x64,
         desktop_win_arm64,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.desktop_mac_arm64.result == 'success' && (github.repository != 'pingdotgg/t3code' || (needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success')) }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.quality.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_linux_x64.result == 'success' && (github.repository != 'pingdotgg/t3code' || (needs.test.result == 'success' && needs.test_web.result == 'success' && needs.test_server.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success')) }}
     runs-on: ${{ github.repository == 'pingdotgg/t3code' && 'blacksmith-8vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 30
     permissions:
@@ -972,9 +974,9 @@ jobs:
             echo 'files<<EOF'
             echo 'release-assets/*.dmg'
             echo 'release-assets/*.zip'
+            echo 'release-assets/*.AppImage'
+            echo 'release-assets/*.deb'
             if [[ "$GITHUB_REPOSITORY" == "pingdotgg/t3code" ]]; then
-              echo 'release-assets/*.AppImage'
-              echo 'release-assets/*.deb'
               echo 'release-assets/*.exe'
             fi
             if [[ "${{ needs.preflight.outputs.release_channel }}" != "preview" ]]; then

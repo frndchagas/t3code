@@ -27,7 +27,7 @@ In **Settings → Voice → Transcription**, filter by language, download a mode
 - **Language & translation**: Pick a language or **Auto** (plus **Translate to English** where supported).
 - **Personal & project dictionaries**: Add custom terms and common misspelling aliases in **Settings → Voice** (device-level) or scoped to a project/environment (up to 100 combined entries; project entries take priority).
 - **Silence filtering & filler removal**: Skip silence (on by default) and strip hesitation words.
-- **Transcript cleanup** (off by default): Sends the finished transcript and surrounding draft text (never audio) to your [text generation model](./text-generation.md) (or a dedicated **Cleanup model**) to fix punctuation, numbers, and spoken self-corrections (optionally using a custom **Correction cue** like "scratch that"). Press **Skip** during cleanup to insert raw text.
+- **Transcript cleanup** (off by default): Sends the finished transcript, surrounding draft text, and (for existing threads) recent thread conversation context—never audio—to your [text generation model](./text-generation.md) (or a dedicated **Cleanup model**) to fix punctuation, numbers, names/flags from the thread, and spoken self-corrections (optionally using a custom **Correction cue** like "scratch that"). Press **Skip** during cleanup to insert raw text.
 
 ## Microphones and testing
 

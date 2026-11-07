@@ -33,6 +33,7 @@ import * as SpeechService from "./SpeechService.ts";
 import * as CloudSpeech from "./CloudSpeech.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { speechHttpApiLayer } from "./http.ts";
 
@@ -54,6 +55,7 @@ const principal = (...scopes: AuthEnvironmentScope[]) => principalWith(new Set(s
 const dependencies = Layer.mergeAll(
   Layer.mock(CloudSpeech.CloudSpeech)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+  Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
   Layer.mock(ServerSettings.ServerSettingsService)({
     getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
   }),

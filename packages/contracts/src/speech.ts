@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const CloudSpeechApiKey = TrimmedNonEmptyString.check(
   Schema.isMaxLength(4096),
@@ -240,6 +240,8 @@ export const EnvironmentSpeechPostProcessingRequest = Schema.Struct({
     text: Schema.String.check(Schema.isMaxLength(100_000)),
     selection: Schema.Struct({ start: Schema.Number, end: Schema.Number }),
   }),
+  /** The thread being dictated into; cleanup reads its conversation for vocabulary. */
+  threadId: Schema.optionalKey(ThreadId),
 });
 export type EnvironmentSpeechPostProcessingRequest =
   typeof EnvironmentSpeechPostProcessingRequest.Type;

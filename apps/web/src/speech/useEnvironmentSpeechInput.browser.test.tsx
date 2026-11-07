@@ -15,6 +15,7 @@ import {
   type SpeechCustomWords,
   type SpeechPostProcessingOptions,
   type SpeechTranscriptionOptions,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import { act, render, stubGlobal } from "../../test/render";
@@ -53,6 +54,7 @@ const mocks = vi.hoisted(() => ({
   cleanupCalls: [] as string[],
   cleanupDraft: vi.fn(),
   cleanupOptions: [] as SpeechPostProcessingOptions[],
+  cleanupThreads: [] as Array<string | null | undefined>,
   recordingOptions: [] as SpeechTranscriptionOptions[],
   projectWords: {} as Record<string, SpeechCustomWords>,
   transcripts: [] as Array<string | Error>,
@@ -153,9 +155,12 @@ vi.mock("@t3tools/client-runtime/voice-input", async (importOriginal) => ({
     transcript: string,
     draft: unknown,
     options: SpeechPostProcessingOptions,
+    _canSend: () => boolean,
+    threadId?: string | null,
   ) =>
     Effect.sync(() => {
       mocks.cleanupCalls.push(prepared.environmentId);
+      mocks.cleanupThreads.push(threadId);
       mocks.cleanupDraft(draft);
       mocks.cleanupOptions.push(options);
       return { text: `Cleaned ${transcript}` };
@@ -228,6 +233,7 @@ function setup(options: { readonly destination?: string | null } = {}) {
   mocks.cleanupCalls = [];
   mocks.cleanupDraft.mockClear();
   mocks.cleanupOptions = [];
+  mocks.cleanupThreads = [];
   mocks.recordingOptions = [];
   mocks.projectWords = {};
   mocks.transcripts = [];
@@ -244,6 +250,7 @@ function setDestination(environmentId: string | null) {
 function Probe(props: {
   readonly projectId?: string;
   readonly projectName?: string;
+  readonly threadId?: string;
   readonly cleanup?: boolean;
   readonly showWizard?: boolean;
 }) {
@@ -251,6 +258,7 @@ function Probe(props: {
     environmentId: THREAD_ENV as EnvironmentId,
     projectId: props.projectId as ProjectId | undefined,
     projectName: props.projectName,
+    threadId: props.threadId as ThreadId | undefined,
     cleanup: props.cleanup,
     ownerKey: "draft",
     draftText: mocks.draft,
@@ -723,6 +731,20 @@ it("cleans text on a cloud-only draft environment only while cleanup is separate
   await screen.rerender(<Probe />);
   await act(() => mocks.voice.stop());
   expect(mocks.cleanupCalls).toHaveLength(1);
+});
+
+it("names the thread being dictated into so cleanup can read its conversation", async () => {
+  setup({ destination: "env-a" });
+  chooseTranscriptCleanup(true);
+  await using screen = await render(<Probe threadId="thread-1" />);
+  await act(() => mocks.voice.start());
+  await act(() => mocks.voice.stop());
+  expect(mocks.cleanupThreads).toEqual(["thread-1"]);
+
+  await screen.rerender(<Probe />);
+  await act(() => mocks.voice.start());
+  await act(() => mocks.voice.stop());
+  expect(mocks.cleanupThreads).toEqual(["thread-1", undefined]);
 });
 
 // The settings model test must show what the model heard, not what a provider rewrote.

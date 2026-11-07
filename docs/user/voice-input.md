@@ -120,6 +120,12 @@ sent to it. Use the built-in instructions or write your own, press **Skip**
 while cleanup runs to insert the raw transcript, and if cleanup fails the raw
 transcript is inserted.
 
+When you dictate into a thread that already exists, cleanup also receives that
+thread's conversation, so a file, branch, flag, or name the thread spells gets
+the same spelling when the recognizer mangles it, for example "push com force"
+becoming "push --force-with-lease" in a thread that uses that flag. A new
+thread's first message has no conversation yet.
+
 Cleanup uses the environment's text generation model unless you pick a
 **Cleanup model** for that environment, for example a cheaper or faster one.
 It can be a text generator instead of a coding agent; see

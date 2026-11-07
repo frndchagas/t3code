@@ -830,7 +830,8 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(OrchestrationHttp.layer),
       Layer.provide(PullRequestHttp.layer),
       Layer.provide(ProjectHttp.layer),
-      Layer.provide(speechHttpApiLayer),
+      // Cleanup reads the conversation of the thread being dictated into.
+      Layer.provide(speechHttpApiLayer.pipe(Layer.provide(ProjectionStoreV2.layer))),
       Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
       Layer.provide(WebhookRoute.layer.pipe(Layer.provide(RelayDeliveryProof.layer))),
       Layer.provide(AuthHttp.layerAuthenticatedAuth),

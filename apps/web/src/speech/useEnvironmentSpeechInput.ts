@@ -21,6 +21,7 @@ import type {
   SpeechPostProcessingOptions,
   SpeechStreamText,
   SpeechTranscriptionOptions,
+  ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { chooseSetupSpeechModel, resolveSpeechVocabulary } from "@t3tools/shared/speech";
@@ -91,6 +92,8 @@ type HookInput = {
   /** The draft's project: its vocabulary on that environment and its name become recognition hints. */
   readonly projectId?: ProjectId | null | undefined;
   readonly projectName?: string | null | undefined;
+  /** The server thread being dictated into; cleanup reads its conversation for vocabulary. */
+  readonly threadId?: ThreadId | null | undefined;
   readonly ownerKey: string;
   readonly disabled?: boolean | undefined;
   /**
@@ -306,6 +309,7 @@ export function useEnvironmentSpeechInput(input: HookInput) {
           cleanupContext(options.draft),
           preferences.cleanup,
           () => hasAudioConsent() && preferences.cleanupGrant === readCleanupGrant(),
+          current.threadId,
         ),
         options,
       ).then((result) => result.text);

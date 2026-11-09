@@ -170,7 +170,9 @@ thread replaces it.
 Suggestions work with every provider. Each one costs a model call, made with the thread's own model
 unless you choose a **Prompt suggestion model**. Use **Prompt suggestion instructions** to steer the
 language, length, or what to leave out. When the agent finishes or waits for instructions, the
-suggestion is the likeliest next step the thread points to.
+suggestion is the likeliest next step the thread points to. It never suggests publishing or sending
+something on your behalf, such as a message, comment, or pull request, unless you asked for exactly
+that in the thread and the agent is waiting for your go-ahead.
 
 ## Edit an earlier prompt
 

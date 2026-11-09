@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadTitlePrompt } from "./textGenerationPrompts.ts";
+import { buildPromptSuggestionPrompt, buildThreadTitlePrompt } from "./textGenerationPrompts.ts";
 import { normalizeCliError } from "./textGenerationUtils.ts";
 
 describe("normalizeCliError", () => {
@@ -27,5 +27,23 @@ describe("buildThreadTitlePrompt", () => {
       });
       expect(prompt).toContain('Never include the project name ("Hyperdrive")');
     }
+  });
+});
+
+describe("buildPromptSuggestionPrompt", () => {
+  it("never offers to publish or send what the developer only approved", () => {
+    const { prompt } = buildPromptSuggestionPrompt({
+      conversation:
+        "USER: Draft the reply to Lucas.\n\nAGENT: Here is the draft. Do you approve it?",
+    });
+
+    expect(prompt).toContain("Never suggest publishing, posting, or sending anything");
+    expect(prompt).toContain("the developer asked in this thread to send that same content");
+    expect(prompt).toContain(
+      "approving a draft, its wording, or a change is not permission to publish it",
+    );
+    expect(prompt).toContain("keep something reserved or unsent");
+    // Other irreversible actions still follow what the developer already asked for.
+    expect(prompt).toContain("Do not propose other irreversible actions");
   });
 });

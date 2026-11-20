@@ -412,6 +412,20 @@ function isOnTrack(version: string, channel: DesktopUpdateChannel): boolean {
   return cliReleaseChannelOf(version) !== "preview" && desktopUpdateChannelOf(version) === channel;
 }
 
+export function serverSatisfiesUpdateTarget(
+  serverVersion: string | null | undefined,
+  target: Pick<ServerUpdateTarget, "targetVersion" | "channel">,
+  trackSwitch = false,
+): boolean {
+  if (serverVersion === null || serverVersion === undefined) return false;
+  const targetChannel =
+    target.channel ?? (trackSwitch ? desktopUpdateChannelOf(target.targetVersion) : undefined);
+  if (targetChannel !== undefined && !isOnTrack(serverVersion, targetChannel)) {
+    return false;
+  }
+  return resolveVersionMismatch(serverVersion, target.targetVersion) === null;
+}
+
 /** How a switch moves a host, or why it never can from here, whatever the release. */
 function trackSwitchMove(
   config: NonNullable<UpdateEverythingMachine["serverConfig"]>,

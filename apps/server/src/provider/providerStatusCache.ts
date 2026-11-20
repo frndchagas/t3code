@@ -28,12 +28,12 @@ const mergeProviderModels = (
 };
 
 const BUILT_IN_DRIVER_ORDER: ReadonlyArray<string> = [
+  "antigravity",
   "codex",
   "claudeAgent",
   "cursor",
   "grok",
   "opencode",
-  "antigravity",
   "fx",
   "kiro",
 ];

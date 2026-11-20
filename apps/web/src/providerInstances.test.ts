@@ -13,6 +13,7 @@ import {
   deriveProviderInstanceEntries,
   getDefaultProviderInstanceModel,
   isProviderInstancePickerReady,
+  providerInstanceEntriesFor,
   resolveDefaultProviderModelSelection,
   resolveSelectableProviderInstance,
   shouldShowInstanceBadge,
@@ -649,5 +650,53 @@ describe("provider icon metadata", () => {
     expect(restoredEntry?.acpRegistryAgentId).toBe("swe-agent");
     expect(restoredEntry?.acpRegistryIconUrl).toBe(iconUrl);
     expect(restoredEntry?.enabled).toBe(true);
+  });
+});
+
+describe("providerInstanceEntriesFor", () => {
+  it("places antigravity instances first ahead of other drivers", () => {
+    const codex = ProviderDriverKind.make("codex");
+    const claude = ProviderDriverKind.make("claudeAgent");
+    const antigravity = ProviderDriverKind.make("antigravity");
+
+    const entries = providerInstanceEntriesFor(
+      [
+        provider({ provider: codex, instanceId: "codex", displayName: "IFMA" }),
+        provider({ provider: claude, instanceId: "claude_leaptools", displayName: "Leaptools" }),
+        provider({
+          provider: antigravity,
+          instanceId: "antigravity_fortetec",
+          displayName: "Gemini Fortetec (Ultra)",
+        }),
+        provider({
+          provider: antigravity,
+          instanceId: "antigravity_pessoal",
+          displayName: "Gemini Pessoal",
+        }),
+      ],
+      {
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: { driver: codex, enabled: true },
+          [ProviderInstanceId.make("claude_leaptools")]: { driver: claude, enabled: true },
+          [ProviderInstanceId.make("antigravity_fortetec")]: {
+            driver: antigravity,
+            enabled: true,
+          },
+          [ProviderInstanceId.make("antigravity_pessoal")]: {
+            driver: antigravity,
+            enabled: true,
+          },
+        },
+        projectSettingsOverrides: {},
+      },
+      null,
+    );
+
+    expect(entries.map((entry) => entry.instanceId)).toEqual([
+      "antigravity_fortetec",
+      "antigravity_pessoal",
+      "codex",
+      "claude_leaptools",
+    ]);
   });
 });

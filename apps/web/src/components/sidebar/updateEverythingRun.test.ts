@@ -203,6 +203,181 @@ describe("startDesktopUpdateLaunchNotice", () => {
   });
 });
 
+function failedServerMachine(
+  environmentId: EnvironmentId,
+  targetVersion: string,
+  overrides: {
+    readonly failure?: string;
+    readonly providerFailure?: string | null;
+    readonly channel?: "latest" | "nightly";
+  } = {},
+) {
+  return {
+    environmentId,
+    label: environmentId,
+    updatesProviders: overrides.providerFailure !== undefined && overrides.providerFailure !== null,
+    server: {
+      environmentId,
+      serverLabel: environmentId,
+      selfUpdate: "desktop-managed" as const,
+      targetVersion,
+      ...(overrides.channel === undefined ? {} : { channel: overrides.channel }),
+    },
+    handedOffVersion: null,
+    startedAt: 0,
+    result: "failed" as const,
+    failure: overrides.failure ?? "Server update failed: already up to date.",
+    providerFailure: overrides.providerFailure ?? null,
+  };
+}
+
+function readCurrentUpdateRun(): UpdateEverythingRun | null {
+  let run: UpdateEverythingRun | null = null;
+  setUpdateEverythingRun((current) => {
+    run = current;
+    return current;
+  });
+  return run;
+}
+
+describe("updateEverythingRunAtom stale server failure reconciliation", () => {
+  afterEach(() => {
+    setUpdateEverythingRun(() => null);
+  });
+
+  it("clears failed servers as they reach or exceed the target version and closes the run without resurrecting on disconnect", () => {
+    const firstId = EnvironmentId.make("remote-a");
+    const secondId = EnvironmentId.make("remote-b");
+    const configAtoms = new Map([
+      [
+        firstId,
+        Atom.make<ServerConfig | null>({
+          environment: { serverVersion: "0.1.9-nightly.20261110.4465" },
+        } as unknown as ServerConfig),
+      ],
+      [
+        secondId,
+        Atom.make<ServerConfig | null>({
+          environment: { serverVersion: "0.1.9-nightly.20261110.4465" },
+        } as unknown as ServerConfig),
+      ],
+    ]);
+    using _config = vi
+      .spyOn(serverEnvironment, "configValueAtom")
+      .mockImplementation(
+        (environmentId) => configAtoms.get(environmentId!) ?? Atom.make<ServerConfig | null>(null),
+      );
+    const targetVersion = "0.1.11-nightly.20261120.4979";
+
+    setUpdateEverythingRun(() => ({
+      localVersion: null,
+      phase: "servers",
+      restartAt: null,
+      machines: [
+        failedServerMachine(firstId, targetVersion),
+        failedServerMachine(secondId, targetVersion),
+      ],
+    }));
+
+    expect(readCurrentUpdateRun()?.machines.map((machine) => machine.result)).toEqual([
+      "failed",
+      "failed",
+    ]);
+
+    appAtomRegistry.set(configAtoms.get(firstId)!, {
+      environment: { serverVersion: "0.1.12-nightly.20261120.4994" },
+    } as unknown as ServerConfig);
+
+    expect(
+      readCurrentUpdateRun()?.machines.map(({ environmentId, result, failure, server }) => ({
+        environmentId,
+        result,
+        failure,
+        retryable: server !== null,
+      })),
+    ).toEqual([
+      { environmentId: firstId, result: "done", failure: null, retryable: false },
+      {
+        environmentId: secondId,
+        result: "failed",
+        failure: "Server update failed: already up to date.",
+        retryable: true,
+      },
+    ]);
+
+    appAtomRegistry.set(configAtoms.get(secondId)!, {
+      environment: { serverVersion: targetVersion },
+    } as unknown as ServerConfig);
+
+    expect(readCurrentUpdateRun()).toBeNull();
+
+    // Disconnecting after reconciliation must not resurrect the settled failure.
+    appAtomRegistry.set(configAtoms.get(secondId)!, null);
+    expect(readCurrentUpdateRun()).toBeNull();
+  });
+
+  it("clears only the server failure when a machine also has a providerFailure", () => {
+    const id = EnvironmentId.make("mixed-failure");
+    const configAtom = Atom.make<ServerConfig | null>({
+      environment: { serverVersion: "0.1.10" },
+    } as unknown as ServerConfig);
+    using _config = vi.spyOn(serverEnvironment, "configValueAtom").mockReturnValue(configAtom);
+
+    setUpdateEverythingRun(() => ({
+      localVersion: null,
+      phase: "servers",
+      restartAt: null,
+      machines: [
+        failedServerMachine(id, "0.1.11", {
+          failure: "Server update failed.",
+          providerFailure: "Codex update failed",
+        }),
+      ],
+    }));
+
+    appAtomRegistry.set(configAtom, {
+      environment: { serverVersion: "0.1.12" },
+    } as unknown as ServerConfig);
+
+    expect(readCurrentUpdateRun()?.machines).toMatchObject([
+      {
+        environmentId: id,
+        result: "failed",
+        failure: "Codex update failed",
+        providerFailure: "Codex update failed",
+        server: null,
+      },
+    ]);
+  });
+
+  it("waits for the target release track before clearing a failed track switch", () => {
+    const id = EnvironmentId.make("track-switch-host");
+    const configAtom = Atom.make<ServerConfig | null>({
+      environment: { serverVersion: "0.1.11-nightly.20261120.4979" },
+    } as unknown as ServerConfig);
+    using _config = vi.spyOn(serverEnvironment, "configValueAtom").mockReturnValue(configAtom);
+
+    setUpdateEverythingRun(() => ({
+      trackSwitch: true,
+      localVersion: null,
+      phase: "servers",
+      restartAt: null,
+      machines: [failedServerMachine(id, "0.1.11", { channel: "latest" })],
+    }));
+
+    // Still on nightly even though the core semver is newer.
+    appAtomRegistry.set(configAtom, {
+      environment: { serverVersion: "0.1.12-nightly.20261120.4994" },
+    } as unknown as ServerConfig);
+    expect(readCurrentUpdateRun()?.machines[0]?.result).toBe("failed");
+
+    appAtomRegistry.set(configAtom, {
+      environment: { serverVersion: "0.1.11" },
+    } as unknown as ServerConfig);
+    expect(readCurrentUpdateRun()).toBeNull();
+  });
+});
+
 describe("retryFailedUpdateRunServers", () => {
   it("settles a failed server that already restarted on the target and retries only the others", () => {
     const targetVersion = "9.9.9";

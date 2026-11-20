@@ -20,7 +20,6 @@ import { m } from "~/i18n/messages";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { desktopUpdateStateAtom } from "~/state/desktopUpdate";
 import { serverEnvironment } from "~/state/server";
-import { resolveVersionMismatch } from "~/versionSkew";
 import type { ServerUpdateOutcome, ServerUpdateTarget } from "../ServerUpdateAction";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
@@ -28,6 +27,7 @@ import {
   getUpdateEverythingToastView,
   isServerUpdateHandedOff,
   type RestoredRetry,
+  serverSatisfiesUpdateTarget,
   type UpdateEverythingResult,
   type UpdateEverythingRun,
   type UpdateRunMachine,
@@ -38,6 +38,74 @@ const updateEverythingRunAtom = Atom.make<UpdateEverythingRun | null>(null).pipe
   Atom.withLabel("update-everything-run"),
 );
 
+const failedServerWatchers = new Map<
+  EnvironmentId,
+  { readonly atom: Atom.Atom<ServerConfig | null>; readonly unsubscribe: () => void }
+>();
+
+function reconcileFailedUpdateRunServers(run: UpdateEverythingRun): UpdateEverythingRun | null {
+  let changed = false;
+  const machines = run.machines.map((machine) => {
+    if (machine.result !== "failed" || machine.server === null) return machine;
+    const serverVersion = appAtomRegistry.get(
+      serverEnvironment.configValueAtom(machine.environmentId),
+    )?.environment.serverVersion;
+    if (!serverSatisfiesUpdateTarget(serverVersion, machine.server, run.trackSwitch === true)) {
+      return machine;
+    }
+    changed = true;
+    return {
+      ...machine,
+      result: machine.providerFailure === null ? ("done" as const) : ("failed" as const),
+      failure: machine.providerFailure,
+      server: null,
+    };
+  });
+  return changed ? closeFinishedUpdateRun({ ...run, machines }) : run;
+}
+
+function syncFailedServerWatchers(run: UpdateEverythingRun | null): void {
+  const watched = new Set<EnvironmentId>();
+  if (run !== null) {
+    for (const machine of run.machines) {
+      if (machine.result === "failed" && machine.server !== null) {
+        watched.add(machine.environmentId);
+      }
+    }
+  }
+  for (const [environmentId, watcher] of failedServerWatchers) {
+    if (!watched.has(environmentId)) {
+      failedServerWatchers.delete(environmentId);
+      watcher.unsubscribe();
+    }
+  }
+  for (const environmentId of watched) {
+    const atom = serverEnvironment.configValueAtom(environmentId);
+    const existing = failedServerWatchers.get(environmentId);
+    if (existing?.atom === atom) continue;
+    existing?.unsubscribe();
+    const unsubscribe = appAtomRegistry.subscribe(atom, (config) => {
+      const current = appAtomRegistry.get(updateEverythingRunAtom);
+      const machine = current?.machines.find((entry) => entry.environmentId === environmentId);
+      if (
+        current === null ||
+        machine === undefined ||
+        machine.result !== "failed" ||
+        machine.server === null ||
+        !serverSatisfiesUpdateTarget(
+          config?.environment.serverVersion,
+          machine.server,
+          current.trackSwitch === true,
+        )
+      ) {
+        return;
+      }
+      settleUpdateRunMachine(environmentId, machine.providerFailure, { serverUpdated: true });
+    });
+    failedServerWatchers.set(environmentId, { atom, unsubscribe });
+  }
+}
+
 export function useUpdateEverythingRun(): UpdateEverythingRun | null {
   return useAtomValue(updateEverythingRunAtom);
 }
@@ -45,7 +113,13 @@ export function useUpdateEverythingRun(): UpdateEverythingRun | null {
 export function setUpdateEverythingRun(
   update: (run: UpdateEverythingRun | null) => UpdateEverythingRun | null,
 ): void {
-  appAtomRegistry.update(updateEverythingRunAtom, update);
+  let next: UpdateEverythingRun | null = null;
+  appAtomRegistry.update(updateEverythingRunAtom, (current) => {
+    const updated = update(current);
+    next = updated === null ? null : reconcileFailedUpdateRunServers(updated);
+    return next;
+  });
+  syncFailedServerWatchers(next);
 }
 
 function updateRunMachines(update: (machine: UpdateRunMachine) => UpdateRunMachine): void {
@@ -75,13 +149,6 @@ export function settleUpdateRunMachine(
   );
 }
 
-function runsVersion(config: ServerConfig | null, targetVersion: string): boolean {
-  return (
-    config !== null &&
-    resolveVersionMismatch(config.environment.serverVersion, targetVersion) === null
-  );
-}
-
 export function retryFailedUpdateRunServers(
   update: (
     target: ServerUpdateTarget,
@@ -89,29 +156,31 @@ export function retryFailedUpdateRunServers(
   ) => Promise<ServerUpdateOutcome>,
   restored: ReadonlyMap<EnvironmentId, RestoredRetry> = new Map(),
 ): void {
-  const failed = (appAtomRegistry.get(updateEverythingRunAtom)?.machines ?? []).flatMap(
-    (machine) => {
-      const target = machine.server ?? restored.get(machine.environmentId);
-      const targetVersion = target === "current" ? machine.handedOffVersion : target?.targetVersion;
-      return machine.result === "failed" && target !== undefined && targetVersion
-        ? [
-            {
-              environmentId: machine.environmentId,
-              target,
-              targetVersion,
-              providerFailure: machine.providerFailure,
-            },
-          ]
-        : [];
-    },
-  );
+  const current = appAtomRegistry.get(updateEverythingRunAtom);
+  const trackSwitch = current?.trackSwitch === true;
+  const failed = (current?.machines ?? []).flatMap((machine) => {
+    const target = machine.server ?? restored.get(machine.environmentId);
+    const targetVersion = target === "current" ? machine.handedOffVersion : target?.targetVersion;
+    return machine.result === "failed" && target !== undefined && targetVersion
+      ? [
+          {
+            environmentId: machine.environmentId,
+            target,
+            targetVersion,
+            providerFailure: machine.providerFailure,
+          },
+        ]
+      : [];
+  });
   const pending: Array<{ target: ServerUpdateTarget; providerFailure: string | null }> = [];
   for (const { environmentId, target, targetVersion, providerFailure } of failed) {
     // The host rejects a same-version update; a server that came back on the target is done.
     if (
-      runsVersion(
-        appAtomRegistry.get(serverEnvironment.configValueAtom(environmentId)),
-        targetVersion,
+      serverSatisfiesUpdateTarget(
+        appAtomRegistry.get(serverEnvironment.configValueAtom(environmentId))?.environment
+          .serverVersion,
+        target === "current" ? { targetVersion } : target,
+        trackSwitch,
       )
     ) {
       settleUpdateRunMachine(environmentId, providerFailure, { serverUpdated: true });
@@ -391,7 +460,13 @@ function followHandedOffServers(
     const unsubscribe = appAtomRegistry.subscribe(
       serverEnvironment.configValueAtom(server.environmentId),
       (config) => {
-        if (runsVersion(config, server.targetVersion)) settle(null);
+        if (
+          serverSatisfiesUpdateTarget(config?.environment.serverVersion, {
+            targetVersion: server.targetVersion,
+          })
+        ) {
+          settle(null);
+        }
       },
       { immediate: true },
     );

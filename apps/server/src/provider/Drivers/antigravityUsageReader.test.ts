@@ -379,6 +379,10 @@ describe("readAntigravityUsage", () => {
           for (const [idx, name] of [
             "gemini-4-argon-high",
             "gemini-4-argon",
+            "gemini-4-neon-xhigh",
+            "gemini-4-neon-extra-high",
+            "gemini-4-neon-high",
+            "gemini-4-neon",
             "gemini-3.7-flash-safety-le",
             "gemini-3-flash-agent",
             "gemini-3-flash",
@@ -393,6 +397,30 @@ describe("readAntigravityUsage", () => {
               new Uint8Array(protoBytes(9, protoNumber(2, 10 + idx))),
             ]);
           }
+          // Offline numeric model ID fallbacks observed for Gemini 4 Neon (High, Low, XHigh).
+          for (const [offset, modelId] of [1532, 1534, 1535].entries()) {
+            yield* db.run("INSERT INTO steps VALUES (?, ?)", [
+              20 + offset,
+              new Uint8Array(protoBytes(9, [...protoNumber(1, modelId), ...protoNumber(2, 10)])),
+            ]);
+          }
+          // Same numeric ID observed with both base slug (field 19) and effort display name (field 21).
+          yield* db.run("INSERT INTO gen_metadata VALUES (?, ?)", [
+            30,
+            new Uint8Array(
+              protoBytes(1, [
+                ...protoNumber(3, 1535),
+                ...protoText(19, "gemini-4-neon"),
+                ...protoText(21, "Gemini 4 Neon (XHigh)"),
+              ]),
+            ),
+          ]);
+          yield* db.run("INSERT INTO gen_metadata VALUES (?, ?)", [
+            31,
+            new Uint8Array(
+              protoBytes(1, [...protoNumber(3, 1535), ...protoText(21, "Gemini 4 Neon (XHigh)")]),
+            ),
+          ]);
         }),
       );
       const result = yield* readAntigravityUsage(dir, 0);
@@ -401,10 +429,17 @@ describe("readAntigravityUsage", () => {
         [
           ["gemini-4-argon-high", "gemini-4-argon"],
           ["gemini-4-argon", undefined],
+          ["gemini-4-neon-xhigh", "gemini-4-neon"],
+          ["gemini-4-neon-extra-high", "gemini-4-neon"],
+          ["gemini-4-neon-high", "gemini-4-neon"],
+          ["gemini-4-neon", undefined],
           ["gemini-3.7-flash-safety-le", "gemini-3.7-flash"],
           ["gemini-3-flash-agent", "gemini-3.5-flash"],
           ["gemini-3-flash", "gemini-3-flash-preview"],
           ["gemini-default", undefined],
+          ["gemini-4-neon", undefined],
+          ["gemini-4-neon", undefined],
+          ["gemini-4-neon", undefined],
         ],
       );
     }).pipe(Effect.provide(NodeServices.layer)),

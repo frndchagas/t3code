@@ -126,11 +126,17 @@ const MODEL_IDS: Record<number, string> = {
   1417: "gemini-4-argon",
   1418: "gemini-4-argon",
   1419: "gemini-4-argon",
+  1532: "gemini-4-neon",
+  1534: "gemini-4-neon",
+  1535: "gemini-4-neon",
 };
 
 // Effort and routing variants share the base model's price.
 export const antigravityRateModel = (model: string) => {
-  const base = model.replace(/-(?:extra-low|low|medium|high|tiered|control|thinking|agent)$/, "");
+  const base = model.replace(
+    /-(?:extra-low|extra-high|low|medium|high|xhigh|tiered|control|thinking|agent)$/,
+    "",
+  );
   return /^gemini-3-flash-(?:agent(?:-[ab])?|[ab])$/.test(model)
     ? "gemini-3.5-flash"
     : model === "gemini-3.7-flash-safety-le"
@@ -170,7 +176,18 @@ function isConcreteModel(model: string): boolean {
 
 function rememberModel(models: Map<number, string | null>, id: number, model: string | null) {
   const previous = models.get(id);
-  models.set(id, previous === undefined || previous === model ? model : null);
+  if (previous === undefined || previous === model) {
+    models.set(id, model);
+    return;
+  }
+  if (previous !== null && model !== null) {
+    const base = antigravityRateModel(previous);
+    if (base === antigravityRateModel(model)) {
+      models.set(id, base);
+      return;
+    }
+  }
+  models.set(id, null);
 }
 
 interface Metadata {

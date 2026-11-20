@@ -88,6 +88,7 @@ const withService = <A, E>(
     readonly requests: Array<PromptSuggestionGenerationInput>;
     readonly suggestions: Suggestions;
   }) => Effect.Effect<A, E>,
+  settingsOverrides: Partial<typeof DEFAULT_SERVER_SETTINGS> = {},
 ) =>
   Effect.gen(function* () {
     const events = yield* Queue.unbounded<OrchestrationV2DomainEvent>();
@@ -134,7 +135,11 @@ const withService = <A, E>(
         get: () => Effect.succeedSome({ workspaceRoot: "/workspace/project" } as never),
       }),
       Layer.mock(ServerSettings.ServerSettingsService)({
-        getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, promptSuggestionsEnabled: true }),
+        getSettings: Effect.succeed({
+          ...DEFAULT_SERVER_SETTINGS,
+          promptSuggestionsEnabled: true,
+          ...settingsOverrides,
+        }),
       }),
       Layer.mock(TextGeneration.TextGeneration)({
         generatePromptSuggestion: (input) =>
@@ -180,6 +185,7 @@ it.effect("suggests the next message from the thread when a run completes", () =
       const [request] = requests;
       assert.include(request?.conversation, "Want me to run the whole suite?");
       assert.strictEqual(request?.cwd, "/workspace/project");
+      assert.strictEqual(request?.projectId, PROJECT_ID);
       // The thread's model, without the effort picked for the work itself.
       assert.deepStrictEqual(request?.modelSelection, {
         instanceId: THREAD_MODEL.instanceId,
@@ -188,6 +194,27 @@ it.effect("suggests the next message from the thread when a run completes", () =
     }),
   ),
 );
+
+it.effect("uses the dedicated prompt suggestion model and its options when configured", () => {
+  const dedicatedModel = {
+    instanceId: ProviderInstanceId.make("antigravity_fortetec"),
+    model: "gemini-4-neon",
+    options: [{ id: "thought_level", value: "low" as const }],
+  };
+  return withService(
+    ({ events, requests, suggestions }) =>
+      Effect.gen(function* () {
+        yield* Queue.offer(events, runUpdated(FIRST_RUN));
+
+        const published = yield* nextSuggestion(suggestions, (text) => text !== null);
+        assert.isTrue(Option.isSome(published));
+        assert.strictEqual(requests.length, 1);
+        assert.deepStrictEqual(requests[0]?.modelSelection, dedicatedModel);
+        assert.strictEqual(requests[0]?.projectId, PROJECT_ID);
+      }),
+    { promptSuggestionModelSelection: dedicatedModel },
+  );
+});
 
 it.effect("suggests after a background notice that the projection lists last", () =>
   withService(({ thread, events, requests, suggestions }) =>

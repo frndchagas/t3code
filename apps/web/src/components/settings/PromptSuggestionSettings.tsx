@@ -1,15 +1,15 @@
 import { T, useGT } from "gt-react";
 import { useRef } from "react";
-import { createModelSelection } from "@t3tools/shared/model";
+import { createModelSelection, pickModelSelection } from "@t3tools/shared/model";
 
-import { providerInstanceEntriesFor } from "../../providerInstances";
 import {
-  getCustomModelOptionsByInstance,
+  getTextGenerationModelOptionsByInstance,
   resolveAppModelSelectionState,
   selectsPlanAgent,
 } from "../../modelSelection";
 import { useEnvironmentProviders } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
+import { useTextGenerationTargets } from "../../textGenerators";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { Switch } from "../ui/switch";
@@ -48,15 +48,16 @@ export function PromptSuggestionSettings() {
     (environment?.serverConfig
       ? providersByEnvironment.get(environment.environmentId)
       : undefined) ?? EMPTY_SERVER_PROVIDERS;
-  const textGenerationProviders = serverProviders.filter(
-    (provider) => provider.supportsTextGeneration !== false,
-  );
-  const instanceEntries = providerInstanceEntriesFor(
-    textGenerationProviders,
+  const textGenerationTargets = useTextGenerationTargets({
+    environmentId,
     settings,
-    target?.projectId ?? null,
-  );
-  const modelDisabledReason = useScopedModelDisabledReason(settings, instanceEntries);
+    providers: serverProviders.filter((provider) => provider.supportsTextGeneration !== false),
+    projectId: target?.projectId ?? null,
+    selections: [settings.promptSuggestionModelSelection, settings.textGenerationModelSelection],
+  });
+  const textGenerationProviders = textGenerationTargets.providers;
+  const instanceEntries = textGenerationTargets.entries;
+  const modelDisabledReason = useScopedModelDisabledReason(settings, instanceEntries, true);
   const usesDedicatedModel = settings.promptSuggestionModelSelection !== null;
   // Off starts from the text generation model; the switch then saves it as the dedicated model.
   const selection = resolveAppModelSelectionState(
@@ -70,7 +71,7 @@ export function PromptSuggestionSettings() {
   const canEnableDedicatedModel = instanceEntries.some(
     (entry) => entry.instanceId === selection.instanceId && entry.enabled && entry.isAvailable,
   );
-  const modelOptionsByInstance = getCustomModelOptionsByInstance(
+  const modelOptionsByInstance = getTextGenerationModelOptionsByInstance(
     settings,
     textGenerationProviders,
     selection.instanceId,
@@ -119,7 +120,11 @@ export function PromptSuggestionSettings() {
                           return;
                         }
                         updateSettings({
-                          promptSuggestionModelSelection: createModelSelection(instanceId, model),
+                          promptSuggestionModelSelection: pickModelSelection(
+                            selection,
+                            instanceId,
+                            model,
+                          ),
                         });
                       }}
                     />

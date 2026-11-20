@@ -69,6 +69,7 @@ export const make = Effect.gen(function* () {
 
       const result = yield* textGeneration.generatePromptSuggestion({
         cwd: thread.worktreePath ?? project.value.workspaceRoot,
+        projectId: thread.projectId,
         conversation: formatPromptSuggestionContext(
           conversation.map((message) => ({
             role:

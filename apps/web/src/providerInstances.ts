@@ -5,7 +5,7 @@ import {
   resolveProjectProviderInstanceEnabled,
   type ModelSelection,
   type ProjectId,
-  type ProviderDriverKind,
+  ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
   type ServerProviderModel,
@@ -186,7 +186,9 @@ function applyProviderInstanceBranding(
   };
 }
 
-/** Picker order: each driver's default instance first, then its custom instances. */
+const PRIORITY_DRIVER_KIND = ProviderDriverKind.make("antigravity");
+
+/** Picker order: Antigravity first, then each driver's default instance followed by its custom instances. */
 export function providerInstanceEntriesFor(
   providers: ReadonlyArray<ServerProvider>,
   settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
@@ -212,7 +214,13 @@ function sortProviderInstanceEntries(
     }
   }
   const sorted: ProviderInstanceEntry[] = [];
-  for (const bucket of byKind.values()) {
+  const orderedBuckets = [
+    ...(byKind.has(PRIORITY_DRIVER_KIND) ? [byKind.get(PRIORITY_DRIVER_KIND)!] : []),
+    ...Array.from(byKind.entries())
+      .filter(([driverKind]) => driverKind !== PRIORITY_DRIVER_KIND)
+      .map(([, bucket]) => bucket),
+  ];
+  for (const bucket of orderedBuckets) {
     const defaults = bucket.filter((entry) => entry.isDefault);
     const customs = bucket.filter((entry) => !entry.isDefault);
     sorted.push(...defaults, ...customs);

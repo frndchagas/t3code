@@ -8,7 +8,11 @@ import {
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 
-import { hydrateCachedProvider, isCachedProviderCorrelated } from "./providerStatusCache.ts";
+import {
+  hydrateCachedProvider,
+  isCachedProviderCorrelated,
+  orderProviderSnapshots,
+} from "./providerStatusCache.ts";
 
 const emptyCapabilities = createModelCapabilities({ optionDescriptors: [] });
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -206,6 +210,38 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
         fallbackProvider: fallbackCodex,
       }),
       fallbackCodex,
+    );
+  });
+
+  it("orders antigravity providers before other built-in drivers", () => {
+    const codex = makeProvider(CODEX_DRIVER, { displayName: "IFMA" });
+    const claude = makeProvider(ProviderDriverKind.make("claudeAgent"), {
+      displayName: "Leaptools",
+    });
+    const antigravityPessoal = makeProvider(ProviderDriverKind.make("antigravity"), {
+      instanceId: ProviderInstanceId.make("antigravity_pessoal"),
+      displayName: "Gemini Pessoal",
+    });
+    const antigravityFortetec = makeProvider(ProviderDriverKind.make("antigravity"), {
+      instanceId: ProviderInstanceId.make("antigravity_fortetec"),
+      displayName: "Gemini Fortetec (Ultra)",
+    });
+
+    const ordered = orderProviderSnapshots([
+      codex,
+      claude,
+      antigravityPessoal,
+      antigravityFortetec,
+    ]);
+
+    assert.deepStrictEqual(
+      ordered.map((provider) => provider.instanceId),
+      [
+        antigravityFortetec.instanceId,
+        antigravityPessoal.instanceId,
+        codex.instanceId,
+        claude.instanceId,
+      ],
     );
   });
 });

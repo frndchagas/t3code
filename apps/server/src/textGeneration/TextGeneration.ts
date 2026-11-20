@@ -222,11 +222,13 @@ export const make = Effect.gen(function* () {
     }),
     generatePromptSuggestion: Effect.fn("TextGeneration.generatePromptSuggestion")(
       function (input) {
-        return resolveInstance(
-          registry,
+        return generate(
           "generatePromptSuggestion",
-          input.modelSelection.instanceId,
-        ).pipe(Effect.flatMap((textGeneration) => textGeneration.generatePromptSuggestion(input)));
+          input.modelSelection,
+          input.projectId,
+          (service, modelSelection) =>
+            service.generatePromptSuggestion({ ...input, modelSelection }),
+        );
       },
     ),
     generateThreadTitle: Effect.fn("TextGeneration.generateThreadTitle")(function (input) {

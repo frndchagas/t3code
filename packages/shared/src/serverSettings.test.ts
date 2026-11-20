@@ -1095,3 +1095,29 @@ describe("resolveSpeechPostProcessingModelSelection", () => {
     ).toBeNull();
   });
 });
+
+describe("promptSuggestionModelSelection patch replacement", () => {
+  it("replaces the dedicated model selection instead of merging stale options", () => {
+    const codexSelection = createModelSelection(ProviderInstanceId.make("codex"), "gpt-6-luna", [
+      { id: "reasoningEffort", value: "low" },
+    ]);
+    const neonSelection = createModelSelection(
+      ProviderInstanceId.make("antigravity_fortetec"),
+      "gemini-4-neon",
+    );
+    const withCodex = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      promptSuggestionModelSelection: codexSelection,
+    });
+    expect(withCodex.promptSuggestionModelSelection).toEqual(codexSelection);
+
+    const switched = applyServerSettingsPatch(withCodex, {
+      promptSuggestionModelSelection: neonSelection,
+    });
+    expect(switched.promptSuggestionModelSelection).toEqual(neonSelection);
+
+    const cleared = applyServerSettingsPatch(switched, {
+      promptSuggestionModelSelection: null,
+    });
+    expect(cleared.promptSuggestionModelSelection).toBeNull();
+  });
+});

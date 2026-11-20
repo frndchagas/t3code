@@ -124,6 +124,7 @@ export interface PromptSuggestionGenerationInput {
   conversation: string;
   instructions?: string | undefined;
   modelSelection: ModelSelection;
+  projectId?: ProjectId | null | undefined;
 }
 
 export interface PromptSuggestionGenerationResult {

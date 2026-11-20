@@ -936,3 +936,101 @@ it.effect(
       );
     }),
 );
+
+it.effect(
+  "prompt suggestions route through text generators and fallback like other text tasks",
+  () =>
+    Effect.gen(function* () {
+      const antigravity = ProviderInstanceId.make("antigravity_fortetec");
+      const claude = ProviderInstanceId.make("claudeAgent");
+      const calls: ModelSelection[] = [];
+      const makeInstance = (
+        instanceId: ProviderInstanceId,
+        driver: ProviderDriverKind,
+        status: "ready" | "error",
+      ): ProviderInstance => ({
+        instanceId,
+        driverKind: driver,
+        continuationIdentity: { driverKind: driver, continuationKey: instanceId },
+        displayName: undefined,
+        enabled: true,
+        snapshot: {
+          getSnapshot: Effect.succeed<ServerProvider>({
+            instanceId,
+            driver,
+            enabled: true,
+            installed: status === "ready",
+            status,
+            auth: { status: status === "ready" ? "authenticated" : "unauthenticated" },
+            version: null,
+            checkedAt: "1970-01-01T00:00:00Z",
+            models: [],
+            slashCommands: [],
+            skills: [],
+          }),
+        } as ProviderInstance["snapshot"],
+        orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+        textGeneration: TextGeneration.TextGeneration.of({
+          generateCommitMessage: () => Effect.die("unused"),
+          generatePrContent: () => Effect.die("unused"),
+          generateBranchName: () => Effect.die("unused"),
+          generateThreadTitle: () => Effect.die("unused"),
+          generateReviewGuide: () => Effect.die("unused"),
+          generateTranscriptionPostProcessing: () => Effect.die("unused"),
+          generatePromptSuggestion: (input) =>
+            Effect.sync(() => {
+              calls.push(input.modelSelection);
+              return { suggestion: "run the tests" };
+            }),
+        }),
+      });
+      const instances = [
+        makeInstance(antigravity, ProviderDriverKind.make("antigravity"), "error"),
+        makeInstance(claude, ProviderDriverKind.make("claudeAgent"), "ready"),
+      ];
+      const service = yield* TextGeneration.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+              listInstances: Effect.succeed(instances),
+              getInstance: (id) =>
+                Effect.succeed(instances.find((candidate) => candidate.instanceId === id)),
+            }),
+            ServerSettings.layerTest({
+              providerInstances: {
+                [antigravity]: { driver: ProviderDriverKind.make("antigravity"), config: {} },
+                [claude]: { driver: ProviderDriverKind.make("claudeAgent"), config: {} },
+              },
+            }),
+            Layer.mock(TextGenerators.TextGenerators)({
+              runner: (id) =>
+                Effect.succeed(
+                  id === "router"
+                    ? () => Effect.succeed({ suggestion: "from router" } as never)
+                    : undefined,
+                ),
+            }),
+            Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
+              resolveLink: () => Effect.die("unused"),
+            }),
+            ProviderInstallationGate.layer,
+          ),
+        ),
+      );
+
+      const fromRouter = yield* service.generatePromptSuggestion({
+        cwd: "/tmp",
+        conversation: "AGENT:\nDone.",
+        modelSelection: { instanceId: ProviderInstanceId.make("router"), model: "fast-model" },
+      });
+      expect(fromRouter).toEqual({ suggestion: "from router" });
+
+      const fromFallback = yield* service.generatePromptSuggestion({
+        cwd: "/tmp",
+        conversation: "AGENT:\nDone.",
+        modelSelection: { instanceId: antigravity, model: "gemini-4-neon" },
+      });
+      expect(fromFallback).toEqual({ suggestion: "run the tests" });
+      expect(calls.map((selection) => selection.instanceId)).toEqual([claude]);
+    }),
+);

@@ -33,6 +33,7 @@ import {
   antigravityLoginResponse,
   parseAntigravityAuthorizationUrl,
   prepareAntigravityProfile,
+  removeLegacyAntigravityToken,
   resolveAntigravityInstanceDirectories,
 } from "./antigravityAuthSupport.ts";
 
@@ -887,6 +888,15 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
     }),
   );
 
+  it.effect("caches a successful browser preflight per spawner and runtime path", () =>
+    Effect.gen(function* () {
+      const helper = preflightHelper(Effect.void);
+      yield* prepareWithHelper("/fake/cached-node", helper.spawner);
+      yield* prepareWithHelper("/fake/cached-node", helper.spawner);
+      expect(helper.spawns.count).toBe(1);
+    }),
+  );
+
   it.effect(
     "prepares an isolated profile with empty config sentinels and copied auth files only",
     () =>
@@ -1020,6 +1030,13 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
             ),
           ).toBe('{"refresh_token":"legacy"}');
         }
+        yield* removeLegacyAntigravityToken(sourceProfile);
+        expect(
+          yield* fs.exists(path.join(sourceProfile, "antigravity-acp", "acp_token.json")),
+        ).toBe(false);
+        expect(
+          yield* fs.exists(path.join(sourceProfile, "antigravity-acp", "antigravity-oauth-token")),
+        ).toBe(true);
       }),
   );
 

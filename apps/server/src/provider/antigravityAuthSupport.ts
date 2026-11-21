@@ -64,6 +64,10 @@ const ISOLATED_AUTH_FILES = [
   "installation_id",
 ] as const;
 const MAX_ISOLATED_AUTH_FILE_BYTES = 64 * 1024;
+const verifiedBrowserPreflights = new WeakMap<
+  ChildProcessSpawner.ChildProcessSpawner["Service"],
+  Set<string>
+>();
 
 const removedEnvironmentKeys = new Set([
   "GEMINI_API_KEY",
@@ -187,6 +191,51 @@ export interface AntigravityInstanceDirectories {
   /** Keep beside the profile: 120-character archive members under its longer name would exceed Windows' 260-character limit. */
   readonly runtimeTemp: string;
 }
+
+/** Remove the legacy 1.3 `acp_token.json` so it cannot outlive sign-out or shadow the 1.5 CLI token. */
+export const removeLegacyAntigravityToken = Effect.fn("removeLegacyAntigravityToken")(function* (
+  profileDirectory: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const legacyTokenPath = path.join(
+    path.resolve(profileDirectory),
+    "antigravity-acp",
+    "acp_token.json",
+  );
+  yield* fs.remove(legacyTokenPath, { force: true }).pipe(Effect.ignore);
+});
+
+const CliTokenEmailFile = Schema.Struct({
+  id_token_email: Schema.optional(Schema.String),
+});
+const decodeCliTokenEmail = Schema.decodeUnknownEffect(Schema.fromJsonString(CliTokenEmailFile));
+
+/** Reads the signed-in Google account email stored locally in the native CLI token file. */
+export const readAntigravityAccountEmail = Effect.fn("readAntigravityAccountEmail")(function* (
+  profileDirectory: string,
+  authMethod: AntigravityAuthMethod,
+) {
+  if (!antigravityAuthUsesBrowser(authMethod)) return undefined;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const cliTokenPath = path.join(
+    path.resolve(profileDirectory),
+    "antigravity-acp",
+    "antigravity-oauth-token",
+  );
+  if (!(yield* fs.exists(cliTokenPath).pipe(Effect.orElseSucceed(() => false)))) {
+    return undefined;
+  }
+  return yield* fs.readFileString(cliTokenPath).pipe(
+    Effect.flatMap(decodeCliTokenEmail),
+    Effect.map((token) => {
+      const trimmed = token.id_token_email?.trim();
+      return trimmed ? trimmed : undefined;
+    }),
+    Effect.orElseSucceed(() => undefined),
+  );
+});
 
 /** Hashes the instance ID so case-only differences stay separate on case-insensitive filesystems. */
 export const resolveAntigravityInstanceDirectories = Effect.fn(
@@ -482,45 +531,56 @@ export const prepareAntigravityProfile = Effect.fn("prepareAntigravityProfile")(
     browserCommand,
     ...(caBundlePath === undefined ? {} : { caBundlePath }),
   };
-  const environment = antigravityEnvironment(profile, input.baseEnv ?? process.env, auth);
-  yield* Effect.gen(function* () {
-    const child = yield* spawner.spawn(
-      ChildProcess.make(helperExecutable, ["-e", browserHelperSource, "--", browserPreflightUrl], {
-        env: environment,
-        extendEnv: false,
-        shell: false,
+  const preflightCacheKey = `${platform}\0${helperExecutable}`;
+  const cachedPreflights = verifiedBrowserPreflights.get(spawner);
+  if (!cachedPreflights?.has(preflightCacheKey)) {
+    const environment = antigravityEnvironment(profile, input.baseEnv ?? process.env, auth);
+    yield* Effect.gen(function* () {
+      const child = yield* spawner.spawn(
+        ChildProcess.make(
+          helperExecutable,
+          ["-e", browserHelperSource, "--", browserPreflightUrl],
+          {
+            env: environment,
+            extendEnv: false,
+            shell: false,
+          },
+        ),
+      );
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [
+          collectUint8StreamText({ stream: child.stdout, maxBytes: 4_096 }),
+          collectUint8StreamText({ stream: child.stderr, maxBytes: 4_096 }),
+          child.exitCode,
+        ],
+        { concurrency: "unbounded" },
+      );
+      if (
+        Number(exitCode) !== 0 ||
+        stdout.bytes !== 0 ||
+        stdout.truncated ||
+        stderr.truncated ||
+        stderr.text !== `${ANTIGRAVITY_AUTH_BROWSER_MARKER}"${browserPreflightUrl}"\n`
+      ) {
+        return yield* authSupportError("Antigravity browser suppression could not be verified.");
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.timeoutOrElse({
+        duration: "30 seconds",
+        orElse: () =>
+          Effect.fail(authSupportError("Antigravity browser suppression verification timed out.")),
       }),
+      Effect.mapError((error) =>
+        error._tag === "AcpTransportError"
+          ? error
+          : authSupportError("Antigravity browser suppression could not be verified."),
+      ),
     );
-    const [stdout, stderr, exitCode] = yield* Effect.all(
-      [
-        collectUint8StreamText({ stream: child.stdout, maxBytes: 4_096 }),
-        collectUint8StreamText({ stream: child.stderr, maxBytes: 4_096 }),
-        child.exitCode,
-      ],
-      { concurrency: "unbounded" },
-    );
-    if (
-      Number(exitCode) !== 0 ||
-      stdout.bytes !== 0 ||
-      stdout.truncated ||
-      stderr.truncated ||
-      stderr.text !== `${ANTIGRAVITY_AUTH_BROWSER_MARKER}"${browserPreflightUrl}"\n`
-    ) {
-      return yield* authSupportError("Antigravity browser suppression could not be verified.");
-    }
-  }).pipe(
-    Effect.scoped,
-    Effect.timeoutOrElse({
-      duration: "30 seconds",
-      orElse: () =>
-        Effect.fail(authSupportError("Antigravity browser suppression verification timed out.")),
-    }),
-    Effect.mapError((error) =>
-      error._tag === "AcpTransportError"
-        ? error
-        : authSupportError("Antigravity browser suppression could not be verified."),
-    ),
-  );
+    const nextCache = cachedPreflights ?? new Set<string>();
+    nextCache.add(preflightCacheKey);
+    verifiedBrowserPreflights.set(spawner, nextCache);
+  }
 
   const directoriesToCreate = input.isolateUserConfig
     ? [geminiHome, acpDirectory, tempDirectory, path.join(geminiHome, "config")]

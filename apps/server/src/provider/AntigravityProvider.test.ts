@@ -140,6 +140,8 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
     readonly enabled?: boolean;
     readonly safe?: boolean;
     readonly rememberedRuntimeModes?: ReadonlyArray<RuntimeMode>;
+    readonly readAccountEmail?: Effect.Effect<string | undefined>;
+    readonly cachedModels?: ReadonlyArray<ServerProvider["models"][number]>;
   } = {},
 ) {
   const savedRuntimeModes = yield* Ref.make<ReadonlyArray<ReadonlyArray<RuntimeMode>>>([]);
@@ -159,6 +161,8 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
         ? { rememberedRuntimeModes: options.rememberedRuntimeModes }
         : {}),
       rememberRuntimeModes: (modes) => Ref.update(savedRuntimeModes, (saved) => [...saved, modes]),
+      ...(options.readAccountEmail ? { readAccountEmail: options.readAccountEmail } : {}),
+      ...(options.cachedModels ? { cachedModels: options.cachedModels } : {}),
       probe: Ref.update(probeCalls, (count) => count + 1).pipe(
         Effect.andThen(Ref.get(probe)),
         Effect.flatten,
@@ -790,6 +794,149 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
     }),
   );
 
+  it.effect(
+    "preserves cached per-model thinking levels across restarts when another model opens first",
+    () =>
+      Effect.gen(function* () {
+        const cachedModels: ReadonlyArray<ServerProvider["models"][number]> = [
+          {
+            slug: "gemini-4-neon",
+            name: "Gemini 4 Neon",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "thought_level",
+                  label: "Thinking Level",
+                  type: "select",
+                  currentValue: "high",
+                  role: "reasoning",
+                  options: [
+                    { id: "low", label: "Low" },
+                    { id: "medium", label: "Medium" },
+                    { id: "high", label: "High" },
+                    { id: "xhigh", label: "Extra" },
+                  ],
+                },
+              ],
+            },
+          },
+          {
+            slug: "gemini-3.8-flash",
+            name: "Gemini 3.8 Flash",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "thought_level",
+                  label: "Thinking Level",
+                  type: "select",
+                  currentValue: "medium",
+                  role: "reasoning",
+                  options: [
+                    { id: "low", label: "Low" },
+                    { id: "medium", label: "Medium" },
+                    { id: "high", label: "High" },
+                  ],
+                },
+              ],
+            },
+          },
+          {
+            slug: "plain-model",
+            name: "Plain Model",
+            isCustom: false,
+            capabilities: { optionDescriptors: [] },
+          },
+        ];
+        const harness = yield* makeHarness({ cachedModels });
+        yield* harness.initialize;
+
+        // First session after restart opens on Flash (3 levels); Neon must keep xhigh.
+        yield* harness.provider.onSessionStarted({
+          ...started,
+          sessionSetupResult: {
+            sessionId: "flash-session",
+            configOptions: [
+              {
+                ...modelConfig,
+                currentValue: "gemini-3.8-flash",
+                options: [
+                  { value: "gemini-4-neon", name: "Gemini 4 Neon" },
+                  { value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+                  { value: "plain-model", name: "Plain Model" },
+                ],
+              },
+              {
+                id: "thought_level",
+                name: "Thinking Level",
+                category: "thought_level",
+                type: "select",
+                currentValue: "medium",
+                options: [
+                  { value: "low", name: "Low" },
+                  { value: "medium", name: "Medium" },
+                  { value: "high", name: "High" },
+                ],
+              },
+            ],
+          },
+        });
+        const afterFlash = yield* harness.provider.snapshot.getSnapshot;
+        const neonDescriptor = afterFlash.models.find((m) => m.slug === "gemini-4-neon")
+          ?.capabilities?.optionDescriptors?.[0];
+        expect(neonDescriptor).toMatchObject({
+          id: "thought_level",
+          currentValue: "high",
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+            { id: "xhigh", label: "Extra" },
+          ],
+        });
+        expect(
+          afterFlash.models.find((m) => m.slug === "plain-model")?.capabilities?.optionDescriptors,
+        ).toEqual([]);
+
+        // Sign-in clears stale account levels so another account starts fresh.
+        yield* harness.provider.onSignedIn;
+        yield* harness.provider.onSessionStarted({
+          ...started,
+          sessionSetupResult: {
+            sessionId: "new-account-session",
+            configOptions: [
+              {
+                ...modelConfig,
+                currentValue: "gemini-3.8-flash",
+                options: [
+                  { value: "gemini-4-neon", name: "Gemini 4 Neon" },
+                  { value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+                ],
+              },
+              {
+                id: "thought_level",
+                name: "Thinking Level",
+                category: "thought_level",
+                type: "select",
+                currentValue: "medium",
+                options: [
+                  { value: "low", name: "Low" },
+                  { value: "medium", name: "Medium" },
+                  { value: "high", name: "High" },
+                ],
+              },
+            ],
+          },
+        });
+        const afterSignIn = yield* harness.provider.snapshot.getSnapshot;
+        expect(
+          afterSignIn.models.find((m) => m.slug === "gemini-4-neon")?.capabilities
+            ?.optionDescriptors?.[0],
+        ).toBeUndefined();
+      }),
+  );
+
   it.effect("replaces one account's catalog instead of combining accounts", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
@@ -1028,6 +1175,40 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
       expect(snapshot.workspaceSnapshots?.[0]?.cwd).toBe("/workspace-3");
       expect(snapshot.slashCommands).toEqual(expectedCommands);
       expect(yield* Ref.get(harness.probeCalls)).toBe(1);
+    }),
+  );
+  it.effect("populates auth.email from account metadata and clears it on switch or sign-out", () =>
+    Effect.gen(function* () {
+      const email = yield* Ref.make<string | undefined>("first@example.com");
+      const harness = yield* makeHarness({
+        readAccountEmail: Ref.get(email),
+      });
+      yield* harness.initialize;
+      expect((yield* harness.provider.snapshot.getSnapshot).auth.email).toBe("first@example.com");
+
+      yield* harness.provider.onSessionStarted(started);
+      expect((yield* harness.provider.snapshot.getSnapshot).auth).toEqual({
+        status: "authenticated",
+        type: "oauth-personal",
+        label: "Google account",
+        email: "first@example.com",
+      });
+
+      // Switching accounts clears the previous email before the new session starts.
+      yield* harness.provider.onSignedIn;
+      expect((yield* harness.provider.snapshot.getSnapshot).auth.email).toBeUndefined();
+      yield* Ref.set(email, "second@example.com");
+      yield* harness.provider.onSessionStarted(started);
+      expect((yield* harness.provider.snapshot.getSnapshot).auth.email).toBe("second@example.com");
+
+      // Sign-out and auth failure remove auth.email as well.
+      yield* harness.provider.onSignedOut;
+      expect((yield* harness.provider.snapshot.getSnapshot).auth.email).toBeUndefined();
+      yield* Ref.set(email, "second@example.com");
+      yield* harness.provider.onSessionStarted(started);
+      expect((yield* harness.provider.snapshot.getSnapshot).auth.email).toBe("second@example.com");
+      yield* harness.provider.onAuthRequired;
+      expect((yield* harness.provider.snapshot.getSnapshot).auth.email).toBeUndefined();
     }),
   );
 });

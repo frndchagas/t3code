@@ -58,6 +58,46 @@ type ThinkingConfig = NonNullable<ReturnType<typeof antigravityThinkingConfig>>;
 /** Thinking options each model reported when selected; `null` means it has none. */
 export type AntigravityThinkingLevels = ReadonlyMap<string, ThinkingConfig | null>;
 
+function seedAntigravityThinkingLevels(
+  models: ReadonlyArray<ServerProviderModel>,
+): Map<string, ThinkingConfig | null> {
+  const levels = new Map<string, ThinkingConfig | null>();
+  const reasoningDescriptorOf = (model: ServerProviderModel) =>
+    model.capabilities?.optionDescriptors?.find(
+      (descriptor) => descriptor.type === "select" && descriptor.role === "reasoning",
+    );
+  // Older 1.3 snapshots lack `thought_level` descriptors; skip seeding `null` unless at least one model reported one.
+  const hasAnyReasoningDescriptor = models.some(
+    (model) => reasoningDescriptorOf(model) !== undefined,
+  );
+  if (!hasAnyReasoningDescriptor) return levels;
+  for (const model of models) {
+    const descriptor = reasoningDescriptorOf(model);
+    if (descriptor?.type === "select") {
+      if (descriptor.currentValue === undefined) continue;
+      levels.set(model.slug, {
+        id: descriptor.id,
+        name: descriptor.label,
+        ...(descriptor.description === undefined ? {} : { description: descriptor.description }),
+        category: "thought_level",
+        type: "select",
+        currentValue: descriptor.currentValue,
+        options: descriptor.options.map((choice) => ({
+          value: choice.id,
+          name: choice.label,
+          ...(choice.description === undefined ? {} : { description: choice.description }),
+        })),
+      });
+    } else if (
+      model.capabilities !== null &&
+      (model.capabilities.optionDescriptors?.length ?? 0) === 0
+    ) {
+      levels.set(model.slug, null);
+    }
+  }
+  return levels;
+}
+
 function thinkingCapabilities(config: ThinkingConfig | null | undefined) {
   const descriptor = config
     ? acpProviderOptionDescriptors({ configOptions: [config], modeState: undefined })[0]
@@ -204,11 +244,14 @@ interface AntigravityProviderOptions {
     EffectAcpErrors.AcpError | ProviderSetupError | AntigravityProbeIncompatibility
   >;
   readonly supportsTextGeneration: Effect.Effect<boolean>;
+  readonly readAccountEmail?: Effect.Effect<string | undefined>;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
   readonly auth?: { readonly type: string; readonly label: string };
   /** Modes the last session advertised, saved because initialize alone does not report them. */
   readonly rememberedRuntimeModes?: ReadonlyArray<RuntimeMode>;
   readonly rememberRuntimeModes?: (modes: ReadonlyArray<RuntimeMode>) => Effect.Effect<void>;
+  /** Previously cached models from this authenticated instance, used to preserve per-model thinking levels across restarts. */
+  readonly cachedModels?: ReadonlyArray<ServerProviderModel>;
 }
 
 const RUNTIME_MODES_WITHOUT_AUTO = [
@@ -274,7 +317,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   const discoveredSkills = new Map<string, ServerProvider["skills"]>();
   // Commands of folders whose draft entry a skill scan dropped, so later scans still report them.
   const workspaceCommands = new Map<string, ServerProvider["slashCommands"]>();
-  const thinkingLevels = new Map<string, ThinkingConfig | null>();
+  const thinkingLevels = seedAntigravityThinkingLevels(options.cachedModels ?? []);
   let defaultModelSlug: string | undefined;
   const observeThinkingLevels = (
     configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> | null | undefined,
@@ -306,6 +349,12 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     Effect.flatMap((state) => options.stampIdentity(state.draft)),
   );
 
+  const resolveAccountEmail = (options.readAccountEmail ?? Effect.undefined).pipe(
+    Effect.map((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    }),
+  );
   const checkProvider = Effect.fn("checkAntigravityProvider")(function* () {
     if (!settings.enabled) return yield* getSnapshot;
     const before = yield* SubscriptionRef.get(metadata);
@@ -334,6 +383,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
               : `Antigravity did not respond to its local health check within ${timeoutMs / 1_000} seconds.`;
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
+    const email = initialized !== undefined ? yield* resolveAccountEmail : undefined;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     const applyCheck = (state: AntigravityProviderState) => {
       if (state.authRevision !== before.authRevision) return state;
@@ -341,6 +391,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       const previousVersion =
         initialized?.invalidatedVersion === draft.version ? null : draft.version;
       const authenticated = draft.auth.status === "authenticated";
+      const auth =
+        email && draft.auth.status !== "unauthenticated" ? { ...draft.auth, email } : draft.auth;
       const message =
         errorMessage ??
         (authenticated
@@ -352,6 +404,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         ...state,
         draft: {
           ...draft,
+          auth,
           installed: !missingInstallation,
           // Lightweight custom-launcher probes lack versions; preserve the real handshake's version.
           version: version === "unknown" ? previousVersion : version || previousVersion,
@@ -421,6 +474,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     observeThinkingLevels(started.sessionSetupResult.configOptions, authoritative);
     const before = yield* SubscriptionRef.get(metadata);
     const supportsTextGeneration = yield* options.supportsTextGeneration;
+    const email = yield* resolveAccountEmail;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     const supportedRuntimeModes = antigravityRuntimeModes(started.sessionSetupResult);
     const previousModes = yield* SubscriptionRef.modify(metadata, (state) => {
@@ -445,6 +499,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             status: "authenticated",
             type: options.auth?.type ?? "oauth-personal",
             label: options.auth?.label ?? "Google account",
+            ...(email ? { email } : {}),
           },
           checkedAt: updatedAt,
           models: buildAntigravityModelsFromSession(started.sessionSetupResult, thinkingLevels, {
@@ -599,6 +654,19 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     onSessionStarted,
     onConfigOptionsUpdated,
     onAvailableCommands,
+    // The new sign-in may be another account; clear cached thinking levels and email before the new session starts.
+    onSignedIn: Effect.sync(() => {
+      thinkingLevels.clear();
+      defaultModelSlug = undefined;
+    }).pipe(
+      Effect.andThen(
+        SubscriptionRef.update(metadata, (state) => {
+          const { email: _previousEmail, ...auth } = state.draft.auth;
+          return { ...state, draft: { ...state.draft, auth } };
+        }),
+      ),
+      Effect.asVoid,
+    ),
     onSignedOut: clearAccountMetadata(),
     onAuthRequired: clearAccountMetadata(),
     snapshotForCwd,

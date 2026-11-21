@@ -949,4 +949,170 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
         yield* h.assertClosed;
       }),
   );
+
+  it.effect.skipIf(windowsHost)(
+    "populates auth.email and removes legacy acp_token.json on account switch and sign-out",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness();
+        const acpDir = h.path.join(h.profileDirectory, "antigravity-acp");
+        const legacyTokenPath = h.path.join(acpDir, "acp_token.json");
+        const cliTokenPath = h.path.join(acpDir, "antigravity-oauth-token");
+        const writeCliToken = (email: string) =>
+          h.fs.writeFileString(
+            cliTokenPath,
+            JSON.stringify({
+              token: {
+                access_token: "access-token",
+                refresh_token: "refresh-token",
+                expiry: "2099-01-01T00:00:00Z",
+              },
+              id_token_email: email,
+            }),
+          );
+        const writeLegacyToken = () =>
+          h.fs.writeFileString(
+            legacyTokenPath,
+            JSON.stringify({
+              client_id: "client-id",
+              client_secret: "client-secret",
+              refresh_token: "legacy-refresh",
+            }),
+          );
+
+        yield* h.fs.makeDirectory(acpDir, { recursive: true });
+        yield* writeLegacyToken();
+        yield* writeCliToken("account-a@example.com");
+
+        yield* h.refresh();
+        expect((yield* h.instance.snapshot.getSnapshot).auth).toMatchObject({
+          status: "authenticated",
+          email: "account-a@example.com",
+        });
+
+        // Sign-out: mimic CLI 1.5 logout deleting antigravity-oauth-token while leaving acp_token.json behind;
+        // the driver must still remove the leftover legacy acp_token.json and clear auth.email.
+        const logoutExecutableDir = h.path.join(
+          h.path.dirname(h.first.executablePath),
+          "runtime-logout",
+        );
+        const logoutExecutablePath = h.path.join(logoutExecutableDir, "agy");
+        const logoutScriptPath = h.path.join(logoutExecutableDir, "logout-agent.mjs");
+        yield* h.fs.makeDirectory(logoutExecutableDir, { recursive: true });
+        yield* h.fs.writeFileString(
+          logoutScriptPath,
+          [
+            'import * as fs from "node:fs";',
+            'import * as readline from "node:readline";',
+            `const cliTokenPath = ${JSON.stringify(cliTokenPath)};`,
+            "const rl = readline.createInterface({ input: process.stdin });",
+            "rl.on('line', (line) => {",
+            "  const msg = JSON.parse(line);",
+            "  if (msg.method === 'initialize') {",
+            "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentCapabilities: { auth: { logout: {} } }, agentInfo: { name: 'antigravity-acp', version: '1.5.13' } } }) + '\\n');",
+            "  } else if (msg.method === 'logout') {",
+            "    fs.rmSync(cliTokenPath, { force: true });",
+            "    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: {} }) + '\\n');",
+            "  }",
+            "});",
+            "",
+          ].join("\n"),
+        );
+        yield* h.fs.writeFileString(
+          logoutExecutablePath,
+          [
+            "#!/bin/sh",
+            `exec ${shellQuote(process.execPath)} ${shellQuote(logoutScriptPath)}`,
+            "",
+          ].join("\n"),
+        );
+        yield* h.fs.chmod(logoutExecutablePath, 0o755);
+        h.controls.selected = {
+          executablePath: logoutExecutablePath,
+          source: "managed",
+          version: "runtime-logout",
+          managedVersionDirectory: logoutExecutableDir,
+        };
+
+        yield* h.instance.auth!.logout(Effect.void);
+        expect(yield* h.fs.exists(cliTokenPath)).toBe(false);
+        expect(yield* h.fs.exists(legacyTokenPath)).toBe(false);
+        expect((yield* h.instance.snapshot.getSnapshot).auth.email).toBeUndefined();
+
+        // Switching accounts via codeLogin also deletes any legacy acp_token.json and reads the new email.
+        const loginExecutableDir = h.path.join(
+          h.path.dirname(h.first.executablePath),
+          "runtime-login",
+        );
+        const loginExecutablePath = h.path.join(loginExecutableDir, "agy");
+        yield* h.fs.makeDirectory(loginExecutableDir, { recursive: true });
+        const loginUrl =
+          "https://accounts.google.com/o/oauth2/auth?response_type=code&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&state=switch-state";
+        const newTokenJson = JSON.stringify({
+          token: {
+            access_token: "access-token-b",
+            refresh_token: "refresh-token-b",
+            expiry: "2099-01-01T00:00:00Z",
+          },
+          id_token_email: "account-b@example.com",
+        });
+        yield* h.fs.writeFileString(
+          loginExecutablePath,
+          [
+            "#!/bin/sh",
+            'for arg in "$@"; do',
+            '  if [ "$arg" = "--login" ]; then',
+            `    printf '%s\\n' ${shellQuote(loginUrl)}`,
+            "    read -r _code",
+            `    mkdir -p ${shellQuote(acpDir)}`,
+            `    printf '%s' ${shellQuote(newTokenJson)} > ${shellQuote(cliTokenPath)}`,
+            "    exit 0",
+            "  fi",
+            "done",
+            `exec ${shellQuote(h.first.executablePath)} "$@"`,
+            "",
+          ].join("\n"),
+        );
+        yield* h.fs.chmod(loginExecutablePath, 0o755);
+        h.controls.selected = {
+          executablePath: loginExecutablePath,
+          source: "managed",
+          version: "runtime-login",
+          managedVersionDirectory: loginExecutableDir,
+        };
+        yield* writeLegacyToken();
+
+        const authStates = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const pull = yield* Stream.toPull(h.instance.auth!.subscribe("session-1"));
+            const started = yield* h.instance.auth!.start("session-1", Effect.void);
+            const flowId = started.flowId!;
+            let waiting = started;
+            while (waiting.phase !== "waiting") {
+              const [next] = yield* pull;
+              if (next) waiting = next;
+            }
+            yield* h.instance.auth!.respond!("session-1", {
+              instanceId: h.instance.instanceId,
+              flowId,
+              interactionId: waiting.interaction!.id,
+              response: { type: "credentials", values: { code: "test-auth-code" } },
+            });
+            let done = waiting;
+            while (done.phase !== "succeeded" && done.phase !== "failed") {
+              const [next] = yield* pull;
+              if (next) done = next;
+            }
+            return done;
+          }),
+        );
+        expect(authStates.phase).toBe("succeeded");
+        expect(yield* h.fs.exists(legacyTokenPath)).toBe(false);
+        expect((yield* h.instance.snapshot.getSnapshot).auth).toMatchObject({
+          status: "authenticated",
+          email: "account-b@example.com",
+        });
+        yield* h.assertClosed;
+      }),
+  );
 });

@@ -2360,6 +2360,15 @@ it.layer(
           ProviderRegistry.mergeProviderSnapshot(merged, restartProbe),
           merged,
         );
+        const enriched = ProviderRegistry.mergeProviderSnapshot(signedIn, {
+          ...restartProbe,
+          auth: { status: "unknown", email: "account@example.com" },
+        });
+        assert.deepStrictEqual(enriched.auth, { ...signedIn.auth, email: "account@example.com" });
+        assert.deepStrictEqual(
+          ProviderRegistry.mergeProviderSnapshot(enriched, restartProbe).auth,
+          enriched.auth,
+        );
       });
 
       it("does not invent an account after sign-out, disable, uninstall, or for other providers", () => {

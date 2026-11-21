@@ -35,6 +35,7 @@ import { makeAntigravityTextGeneration } from "../../textGeneration/AntigravityT
 import { makeAntigravityAuth, type AntigravityAuth } from "../AntigravityAuth.ts";
 import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import { brokenRuntimeError } from "../providerCompatibility.ts";
+import { readProviderStatusCache, resolveProviderStatusCachePath } from "../providerStatusCache.ts";
 import * as AntigravityUsage from "./AntigravityUsage.ts";
 import {
   antigravityAuthConfigIssue,
@@ -43,6 +44,8 @@ import {
   buildAntigravityAcpSpawnInput,
   isAntigravitySignInRequiredError,
   prepareAntigravityProfile,
+  readAntigravityAccountEmail,
+  removeLegacyAntigravityToken,
   resolveAntigravityInstanceDirectories,
   type AntigravityAuthConfig,
 } from "../antigravityAuthSupport.ts";
@@ -197,6 +200,11 @@ export const AntigravityDriver: ProviderDriver<
       ),
       Effect.orElseSucceed(() => undefined),
     );
+    const clearLegacyToken = removeLegacyAntigravityToken(profileDirectory).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    const cliTokenPath = path.join(profileDirectory, "antigravity-acp", "antigravity-oauth-token");
     for (const directory of [
       directories.runtimeTemp,
       path.join(profileDirectory, "antigravity-acp", "tmp"),
@@ -559,6 +567,7 @@ export const AntigravityDriver: ProviderDriver<
               "Antigravity could not finish Google sign-in. Start sign-in again.",
             );
           }
+          yield* clearLegacyToken;
         }),
       };
     });
@@ -597,8 +606,17 @@ export const AntigravityDriver: ProviderDriver<
     const authFlow: AntigravityAuth = yield* makeAntigravityAuth({
       instanceId,
       makeRuntime: makeDisposableRuntime,
-      onAuthenticated: publishCatalog,
-      onSignedOut: Effect.suspend(() => provider.onSignedOut),
+      // A new sign-in may be another account; clear any stale legacy token and previous account state first.
+      onAuthenticated: (started, runtime) =>
+        fileSystem.exists(cliTokenPath).pipe(
+          Effect.orElseSucceed(() => false),
+          Effect.flatMap((hasCliToken) => (hasCliToken ? clearLegacyToken : Effect.void)),
+          Effect.andThen(Effect.suspend(() => provider.onSignedIn)),
+          Effect.andThen(publishCatalog(started, runtime)),
+        ),
+      onSignedOut: clearLegacyToken.pipe(
+        Effect.andThen(Effect.suspend(() => provider.onSignedOut)),
+      ),
       usesBrowser: antigravityAuthUsesBrowser(auth.authMethod),
       codeLogin,
     });
@@ -669,10 +687,34 @@ export const AntigravityDriver: ProviderDriver<
       };
     });
 
+    const readAccountEmail = readAntigravityAccountEmail(profileDirectory, auth.authMethod).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    const cachedSnapshot = yield* resolveProviderStatusCachePath({
+      cacheDir: host.paths.providerStatusCacheDir,
+      instanceId,
+    }).pipe(
+      Effect.provideService(Path.Path, path),
+      Effect.flatMap((filePath) =>
+        readProviderStatusCache(filePath).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        ),
+      ),
+      Effect.orElseSucceed(() => undefined),
+    );
+    const cachedModels =
+      cachedSnapshot !== undefined &&
+      cachedSnapshot.instanceId === instanceId &&
+      cachedSnapshot.driver === DRIVER &&
+      cachedSnapshot.auth.status === "authenticated"
+        ? cachedSnapshot.models
+        : undefined;
     const provider = yield* makeAntigravityProvider(settings, {
       environment: processEnvironment,
       stampIdentity: classifyModels,
       probe,
+      readAccountEmail,
       auth: { type: auth.authMethod, label: antigravityAuthLabel(auth.authMethod) },
       ...(rememberedRuntimeModes ? { rememberedRuntimeModes } : {}),
       rememberRuntimeModes: (modes) =>
@@ -686,6 +728,7 @@ export const AntigravityDriver: ProviderDriver<
         ),
       // Text generation always runs in an isolated ephemeral GEMINI_HOME without hooks or MCP.
       supportsTextGeneration: Effect.succeed(true),
+      ...(cachedModels === undefined ? {} : { cachedModels }),
     }).pipe(
       Effect.mapError(
         (cause) =>

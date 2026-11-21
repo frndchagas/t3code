@@ -65,6 +65,46 @@ type ThinkingConfig = NonNullable<ReturnType<typeof antigravityThinkingConfig>>;
 /** Thinking options each model reported when selected; `null` means it has none. */
 export type AntigravityThinkingLevels = ReadonlyMap<string, ThinkingConfig | null>;
 
+function seedAntigravityThinkingLevels(
+  models: ReadonlyArray<ServerProviderModel>,
+): Map<string, ThinkingConfig | null> {
+  const levels = new Map<string, ThinkingConfig | null>();
+  const reasoningDescriptorOf = (model: ServerProviderModel) =>
+    model.capabilities?.optionDescriptors?.find(
+      (descriptor) => descriptor.type === "select" && descriptor.role === "reasoning",
+    );
+  // Older 1.3 snapshots lack `thought_level` descriptors; skip seeding `null` unless at least one model reported one.
+  const hasAnyReasoningDescriptor = models.some(
+    (model) => reasoningDescriptorOf(model) !== undefined,
+  );
+  if (!hasAnyReasoningDescriptor) return levels;
+  for (const model of models) {
+    const descriptor = reasoningDescriptorOf(model);
+    if (descriptor?.type === "select") {
+      if (descriptor.currentValue === undefined) continue;
+      levels.set(model.slug, {
+        id: descriptor.id,
+        name: descriptor.label,
+        ...(descriptor.description === undefined ? {} : { description: descriptor.description }),
+        category: "thought_level",
+        type: "select",
+        currentValue: descriptor.currentValue,
+        options: descriptor.options.map((choice) => ({
+          value: choice.id,
+          name: choice.label,
+          ...(choice.description === undefined ? {} : { description: choice.description }),
+        })),
+      });
+    } else if (
+      model.capabilities !== null &&
+      (model.capabilities.optionDescriptors?.length ?? 0) === 0
+    ) {
+      levels.set(model.slug, null);
+    }
+  }
+  return levels;
+}
+
 function thinkingCapabilities(config: ThinkingConfig | null | undefined, observed: boolean) {
   const descriptor = config
     ? acpProviderOptionDescriptors({ configOptions: [config], modeState: undefined })[0]
@@ -170,8 +210,11 @@ interface AntigravityProviderOptions {
   readonly supportsTextGeneration: Effect.Effect<boolean>;
   readonly probeUsage?: Effect.Effect<ServerProviderUsageLimits>;
   readonly clearUsage?: Effect.Effect<void>;
+  readonly readAccountEmail?: Effect.Effect<string | undefined>;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
   readonly auth?: { readonly type: string; readonly label: string };
+  /** Previously cached models from this authenticated instance, used to preserve per-model thinking levels across restarts. */
+  readonly cachedModels?: ReadonlyArray<ServerProviderModel>;
 }
 
 const RUNTIME_MODES_WITHOUT_AUTO = [
@@ -235,7 +278,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   });
   // Preserve disk-discovered skills when callbacks replace workspace commands; the registry will not rescan them.
   const discoveredSkills = new Map<string, ServerProvider["skills"]>();
-  const thinkingLevels = new Map<string, ThinkingConfig | null>();
+  const thinkingLevels = seedAntigravityThinkingLevels(options.cachedModels ?? []);
   const observeThinkingLevels = (
     configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> | null | undefined,
   ) => {
@@ -250,6 +293,13 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     Effect.flatMap((state) => options.stampIdentity(state.draft)),
   );
 
+  const resolveAccountEmail = (options.readAccountEmail ?? Effect.undefined).pipe(
+    Effect.map((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    }),
+  );
+
   // The quota read can take 30 seconds, so it never blocks readiness or a session start.
   // One read runs at a time; sign-in and sign-out interrupt it so a stale account never lands.
   const usageRead = yield* FiberHandle.make();
@@ -261,16 +311,23 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       usageRead,
       options.probeUsage.pipe(
         Effect.flatMap((probed) =>
-          SubscriptionRef.update(metadata, (state) => ({
-            ...state,
-            draft: {
-              ...state.draft,
-              usageLimits: resolveUsageLimitsAfterProbe({
-                published: state.draft.usageLimits,
-                probed,
-              }),
-            },
-          })),
+          resolveAccountEmail.pipe(
+            Effect.flatMap((email) =>
+              SubscriptionRef.update(metadata, (state) => ({
+                ...state,
+                draft: {
+                  ...state.draft,
+                  ...(email && state.draft.auth.status !== "unauthenticated"
+                    ? { auth: { ...state.draft.auth, email } }
+                    : {}),
+                  usageLimits: resolveUsageLimitsAfterProbe({
+                    published: state.draft.usageLimits,
+                    probed,
+                  }),
+                },
+              })),
+            ),
+          ),
         ),
         // Enrichment cannot change published limits; a health check publishes them.
         Effect.andThen(
@@ -317,11 +374,14 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
               : `Antigravity did not respond to its local health check within ${timeoutMs / 1_000} seconds.`;
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
+    const email = initialized !== undefined ? yield* resolveAccountEmail : undefined;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     const applyCheck = (state: AntigravityProviderState) => {
       if (state.authRevision !== before.authRevision) return state;
       const { message: _previousMessage, ...draft } = state.draft;
       const authenticated = draft.auth.status === "authenticated";
+      const auth =
+        email && draft.auth.status !== "unauthenticated" ? { ...draft.auth, email } : draft.auth;
       const message =
         errorMessage ??
         (authenticated
@@ -333,6 +393,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         ...state,
         draft: {
           ...draft,
+          auth,
           installed: !missingInstallation,
           // Lightweight custom-launcher probes lack versions; preserve the real handshake's version.
           version: version === "unknown" ? draft.version : version || draft.version,
@@ -399,6 +460,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     observeThinkingLevels(started.sessionSetupResult.configOptions);
     const before = yield* SubscriptionRef.get(metadata);
     const supportsTextGeneration = yield* options.supportsTextGeneration;
+    const email = yield* resolveAccountEmail;
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* SubscriptionRef.update(metadata, (state) => {
       if (
@@ -421,6 +483,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             status: "authenticated",
             type: options.auth?.type ?? "oauth-personal",
             label: options.auth?.label ?? "Google account",
+            ...(email ? { email } : {}),
           },
           checkedAt: updatedAt,
           models: buildAntigravityModelsFromSession(started.sessionSetupResult, thinkingLevels),
@@ -560,9 +623,15 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     // cannot fall back to them; the session start then reads the new account's limits.
     onSignedIn: resetUsage.pipe(
       Effect.andThen(
+        Effect.sync(() => {
+          thinkingLevels.clear();
+        }),
+      ),
+      Effect.andThen(
         SubscriptionRef.update(metadata, (state) => {
           const { usageLimits: _previousAccount, ...draft } = state.draft;
-          return { ...state, draft };
+          const { email: _previousEmail, ...auth } = draft.auth;
+          return { ...state, draft: { ...draft, auth } };
         }),
       ),
       Effect.andThen(

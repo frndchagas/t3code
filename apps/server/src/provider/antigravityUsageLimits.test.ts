@@ -70,6 +70,8 @@ const fixture = Effect.fn("AntigravityUsageTest.fixture")(function* (
     userId?: string;
     userInfoAt?: number;
     missingToken?: boolean;
+    /** Skip the default project-body assertion when a test switches between CLI and legacy tokens. */
+    allowAnyQuotaBody?: boolean;
     authMethod?: "oauth-personal" | "oauth-business" | "gemini-api-key";
     keyringSecret?: string;
     /** Reads the OS keyring instead of `keyringSecret`. */
@@ -119,7 +121,9 @@ const fixture = Effect.fn("AntigravityUsageTest.fixture")(function* (
             : Response.json({}, { status: 403 }),
         );
       }
-      expect(JSON.parse(body)).toEqual(options.missingToken ? {} : { project: "project-id" });
+      if (!options.allowAnyQuotaBody) {
+        expect(JSON.parse(body)).toEqual(options.missingToken ? {} : { project: "project-id" });
+      }
       expect(request.headers["user-agent"]).toMatch(/^antigravity\/hub\/2\.24\.0 /);
       return HttpClientResponse.fromWeb(
         request,
@@ -673,6 +677,80 @@ describe("Antigravity subscription limits", () => {
       expect(limits.unavailable?.reason).toBe("probeFailed");
       expect(JSON.stringify(limits)).not.toMatch(/client-secret|refresh-a|access-token/);
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect(
+    "prefers antigravity-oauth-token over a leftover acp_token.json and exposes account email separately",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(
+          DateTime.toEpochMillis(DateTime.makeUnsafe("2026-10-09T12:00:00Z")),
+        );
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        // Start with a legacy acp_token.json in the same profile directory.
+        const { probe, readAccountEmail, clear, requests, tokenPath } = yield* fixture({
+          userId: "google-user-1",
+          allowAnyQuotaBody: true,
+        });
+        const cliTokenPath = path.join(path.dirname(tokenPath), "antigravity-oauth-token");
+        const writeCliToken = (expiry: string, email?: string) =>
+          fs.writeFileString(
+            cliTokenPath,
+            JSON.stringify({
+              token: {
+                access_token: "access-token",
+                token_type: "Bearer",
+                refresh_token: "cli-refresh",
+                expiry,
+                expires_in: 3600,
+              },
+              auth_method: "consumer",
+              ...(email === undefined ? {} : { id_token_email: email }),
+            }),
+          );
+
+        // With both files present, antigravity-oauth-token wins and never refreshes acp_token.json.
+        yield* writeCliToken("2026-10-09T14:00:00Z", "  cli-account@example.com  ");
+        expect(yield* readAccountEmail).toBe("cli-account@example.com");
+        const limits = yield* probe;
+        expect(limits.unavailable).toBeUndefined();
+        expect(limits.windows).toHaveLength(4);
+        expect(requests.some((request) => request.url.endsWith("/token"))).toBe(false);
+        expect(
+          requests
+            .filter((request) => request.url.endsWith(":retrieveUserQuotaSummary"))
+            .map((request) => JSON.parse(request.body)),
+        ).toEqual([{}, {}]);
+        expect(JSON.stringify(limits)).not.toContain("cli-account@example.com");
+
+        // An expired CLI token must report expiry rather than falling back to a stale acp_token.json.
+        yield* writeCliToken("2026-10-09T12:00:30Z", "cli-account@example.com");
+        const expired = yield* probe;
+        expect(expired.unavailable?.reason).toBe("probeFailed");
+        expect(requests.some((request) => request.url.endsWith("/token"))).toBe(false);
+        expect(yield* readAccountEmail).toBe("cli-account@example.com");
+
+        // Once the CLI token is removed and cleared, legacy acp_token.json populates email from userinfo.
+        yield* fs.remove(cliTokenPath);
+        yield* clear;
+        expect(yield* readAccountEmail).toBeUndefined();
+        const requestsBeforeLegacy = requests.length;
+        const legacy = yield* probe;
+        expect(legacy.unavailable).toBeUndefined();
+        expect(yield* readAccountEmail).toBe("someone@example.com");
+        expect(requests.some((request) => request.url.endsWith("/token"))).toBe(true);
+        expect(
+          requests
+            .slice(requestsBeforeLegacy)
+            .filter((request) => request.url.endsWith(":retrieveUserQuotaSummary"))
+            .map((request) => JSON.parse(request.body)),
+        ).toEqual([{ project: "project-id" }, { project: "project-id" }]);
+
+        // Non-OAuth methods never expose an account email.
+        const apiKey = yield* fixture({ authMethod: "gemini-api-key" });
+        expect(yield* apiKey.readAccountEmail).toBeUndefined();
+      }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("reads the native CLI's stored sign-in when acp_token.json is absent", () =>

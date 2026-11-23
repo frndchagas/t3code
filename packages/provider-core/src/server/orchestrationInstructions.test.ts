@@ -91,6 +91,7 @@ describe("T3 device instructions", () => {
       previousState: state,
     });
     assert.include(withDevices, T3_CODE_DEVICE_TOOL_INSTRUCTIONS);
+    assert.include(withDevices, "`preview_recording_start`/`preview_recording_stop`");
     assert.equal(
       t3AcpPromptWithInstructions({ prompt: "Again.", state, previousState: state }),
       "Again.",

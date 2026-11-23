@@ -222,7 +222,7 @@ const PreviewRecordingStartTool = safeBrowserTool(
 const PreviewRecordingStopTool = safeBrowserTool(
   Tool.make("preview_recording_stop", {
     description:
-      "Stop recording the chosen tab. Returns a local path to the recording file (max 50 MiB).",
+      "Stop recording the chosen tab. Returns a local path to the recording file (max 50 MiB). Agents whose file-read tool supports video can inspect the recording directly.",
     parameters: PreviewAutomationTabTargetInput,
     success: Schema.Struct({ ...PreviewAutomationRecordingArtifact.fields, ...presentationFields }),
     failure: PreviewToolFailure,

@@ -1352,14 +1352,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     </div>
   );
-  const titleLineIcons = metaLineEmpty ? (
-    <span aria-hidden className="inline-flex shrink-0 items-center gap-1">
+  const inlineProviderIcon = (
+    <span
+      aria-hidden
+      data-testid="sidebar-row-provider-icon"
+      className="inline-flex shrink-0 items-center gap-1"
+    >
       <SidebarProviderIcon
         thread={thread}
         providerEntryByInstanceId={props.providerEntryByInstanceId}
       />
     </span>
-  ) : null;
+  );
+  const titleLineIcons = metaLineEmpty ? inlineProviderIcon : null;
 
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
@@ -1409,7 +1414,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         >
           {/* `contents` keeps one-line rows a single flex row. */}
           <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
-            {inFolder ? null : (
+            {inFolder ? (
+              multiline ? null : (
+                inlineProviderIcon
+              )
+            ) : (
               <span
                 className={cn(
                   "flex shrink-0 items-center transition-opacity",
@@ -1424,7 +1433,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
             {draftIndicator}
             {title}
-            {multiline ? titleLineIcons : null}
+            {multiline ? titleLineIcons : inFolder ? null : inlineProviderIcon}
             {pinIndicator}
             {hostPressureIcon}
             {multiline ? null : terminalStatusIcon}

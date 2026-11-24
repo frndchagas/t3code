@@ -4,9 +4,10 @@ import {
   type MobileFontId,
   type MobileMonoFontId,
 } from "./fontFamilies";
-import { BUILT_IN_THEME_IDS, type BuiltInThemeId } from "@t3tools/shared/themePalettes";
 import {
   DEFAULT_MOBILE_THEME_ID,
+  MOBILE_CUSTOM_THEME_IDS,
+  type MobileCustomThemeId,
   type MobileThemeAppearance,
   type MobileThemeId,
   type MobileThemeMode,
@@ -14,7 +15,7 @@ import {
 
 export type MobileUniwindThemeName =
   | MobileThemeAppearance
-  | `${BuiltInThemeId}-${MobileThemeAppearance}`;
+  | `${MobileCustomThemeId}-${MobileThemeAppearance}`;
 
 export interface MobileThemeRuntimeState {
   readonly baseFontSize: number;
@@ -39,7 +40,7 @@ export type MobileThemeRuntimeOperation =
 const UNIWIND_THEME_NAMES: ReadonlyArray<"light" | "dark" | MobileUniwindThemeName> = [
   "light",
   "dark",
-  ...BUILT_IN_THEME_IDS.flatMap((themeId) => [
+  ...MOBILE_CUSTOM_THEME_IDS.flatMap((themeId) => [
     `${themeId}-light` as const,
     `${themeId}-dark` as const,
   ]),

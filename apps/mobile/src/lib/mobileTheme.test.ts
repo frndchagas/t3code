@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  BUILT_IN_THEME_IDS,
-  BUILT_IN_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
-  MOBILE_THEME_IDS,
   getThemeColorsForAppearance,
 } from "@t3tools/shared/themePalettes";
 import {
@@ -20,10 +17,18 @@ import {
   DEFAULT_MOBILE_THEME_ID,
   flattenThemeColor,
   getMobileThemeVariables,
+  MOBILE_CUSTOM_THEME_IDS,
+  MOBILE_PALETTE_THEMES,
   resolveMobileThemeIds,
   themeColorWithAlpha,
   themeColorToNativeColor,
+  type MobilePaletteThemeId,
 } from "./mobileTheme";
+
+const PALETTE_THEME_IDS: ReadonlyArray<MobilePaletteThemeId> = [
+  DEFAULT_MOBILE_THEME_ID,
+  ...MOBILE_CUSTOM_THEME_IDS,
+];
 
 function relativeLuminance(hex: string): number {
   const channels = hex
@@ -67,9 +72,9 @@ describe("mobile themes", () => {
     );
   });
 
-  it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
+  it.each(PALETTE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
-      const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+      const theme = MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId);
       const colors = theme
         ? getThemeColorsForAppearance(theme, appearance)!
         : appearance === "dark"
@@ -144,7 +149,7 @@ describe("mobile themes", () => {
     }
   });
 
-  it.each(MOBILE_THEME_IDS)("keeps %s sidebar text readable on Android", (themeId) => {
+  it.each(PALETTE_THEME_IDS)("keeps %s sidebar text readable on Android", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
       const variables = getMobileThemeRuntimeVariables(themeId, appearance, "android");
       for (const foreground of [
@@ -159,7 +164,7 @@ describe("mobile themes", () => {
     }
   });
 
-  it.each(MOBILE_THEME_IDS)("separates %s filled groups from their sheets", (themeId) => {
+  it.each(PALETTE_THEME_IDS)("separates %s filled groups from their sheets", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
       const generated = readGeneratedMobileThemeVariables(
         themeId === DEFAULT_MOBILE_THEME_ID ? appearance : `${themeId}-${appearance}`,
@@ -259,7 +264,7 @@ describe("mobile themes", () => {
   });
 
   it("keeps placeholders and selected-row labels readable on their mobile surfaces", () => {
-    for (const themeId of BUILT_IN_THEME_IDS) {
+    for (const themeId of MOBILE_CUSTOM_THEME_IDS) {
       for (const appearance of ["light", "dark"] as const) {
         const variables = getMobileThemeVariables(themeId, appearance);
         expect(
@@ -268,7 +273,7 @@ describe("mobile themes", () => {
       }
     }
 
-    for (const themeId of BUILT_IN_THEME_IDS) {
+    for (const themeId of MOBILE_CUSTOM_THEME_IDS) {
       for (const appearance of ["light", "dark"] as const) {
         const variables = getMobileThemeVariables(themeId, appearance);
         expect(

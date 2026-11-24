@@ -1,4 +1,5 @@
 import {
+  BUILT_IN_THEME_IDS,
   BUILT_IN_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
@@ -6,18 +7,29 @@ import {
   getThemeColorsForAppearance,
   MOBILE_DEFAULT_THEME_ID,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
+  type BuiltInThemeId,
   type MobileThemeId as SharedMobileThemeId,
   type ThemeAppearance,
   type ThemeColors,
+  type ThemeDefinition,
 } from "@t3tools/shared/themePalettes";
 import {
   STANDARD_THEME_PREVIEW_COLORS,
   type ThemePreviewColors,
 } from "@t3tools/shared/themePreview";
+import { SYNARA_MOBILE_THEME } from "./synaraMobileTheme.ts";
 
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
-export const MOBILE_THEME_IDS = [...SHARED_MOBILE_THEME_IDS, "material-you"] as const;
-export type MobileThemeId = SharedMobileThemeId | "material-you";
+export const MOBILE_EXTRA_THEMES: ReadonlyArray<ThemeDefinition> = [SYNARA_MOBILE_THEME];
+export const MOBILE_CUSTOM_THEME_IDS = [...BUILT_IN_THEME_IDS, "synara"] as const;
+export type MobileCustomThemeId = BuiltInThemeId | "synara";
+export type MobilePaletteThemeId = SharedMobileThemeId | "synara";
+export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = [
+  ...BUILT_IN_THEMES,
+  ...MOBILE_EXTRA_THEMES,
+];
+export const MOBILE_THEME_IDS = [...SHARED_MOBILE_THEME_IDS, "synara", "material-you"] as const;
+export type MobileThemeId = MobilePaletteThemeId | "material-you";
 export type MobileThemeAppearance = ThemeAppearance;
 export type MobileThemeMode = MobileThemeAppearance | "system";
 export type MobileThemeIds = Readonly<Record<MobileThemeAppearance, MobileThemeId>>;
@@ -28,7 +40,7 @@ export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
 }> = [
   { id: DEFAULT_MOBILE_THEME_ID, label: "T3 Code" },
   { id: "material-you", label: "Material You" },
-  ...BUILT_IN_THEMES.map((theme) => ({ id: theme.id as MobileThemeId, label: theme.label })),
+  ...MOBILE_PALETTE_THEMES.map((theme) => ({ id: theme.id as MobileThemeId, label: theme.label })),
 ];
 
 export type MobileThemeVariable = keyof ReturnType<typeof createMobileThemeVariables>;
@@ -449,18 +461,19 @@ export function createMobileThemeVariables(
 }
 
 export function getMobileThemeColors(
-  themeId: SharedMobileThemeId,
+  themeId: MobilePaletteThemeId,
   appearance: MobileThemeAppearance,
 ): ThemeColors {
   if (themeId === DEFAULT_MOBILE_THEME_ID) {
     return appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
   }
-  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
+  const theme =
+    MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
   return getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
 }
 
 export function getMobileThemeVariables(
-  themeId: SharedMobileThemeId,
+  themeId: MobilePaletteThemeId,
   appearance: MobileThemeAppearance,
   overrides: Partial<MobileThemeVariables> | null = null,
 ): MobileThemeVariables {
@@ -508,7 +521,8 @@ export function getMobileThemePreviewColors(
 ): ThemePreviewColors {
   if (themeId === DEFAULT_MOBILE_THEME_ID || themeId === "material-you")
     return STANDARD_THEME_PREVIEW_COLORS[appearance];
-  const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
+  const theme =
+    MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
   const colors = getThemeColorsForAppearance(theme, appearance) ?? theme.colors;
   return {
     canvas: themeColorToNativeColor(colors.canvas),

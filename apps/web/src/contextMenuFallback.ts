@@ -35,6 +35,10 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     },
     { tag: "path", attrs: { d: "m15 5 4 4" } },
   ],
+  "columns-2": [
+    { tag: "rect", attrs: { width: "18", height: "18", x: "3", y: "3", rx: "2" } },
+    { tag: "path", attrs: { d: "M12 3v18" } },
+  ],
   copy: [
     { tag: "rect", attrs: { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" } },
     { tag: "path", attrs: { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" } },

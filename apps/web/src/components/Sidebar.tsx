@@ -167,6 +167,7 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { isSameScopedThreadRef, useSplitViewStore } from "../splitViewStore";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -2763,6 +2764,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 AuthOrchestrationOperateScope,
               ),
               canTriage: threadTriagePermitted(threadRef.environmentId),
+              canOpenInSplit: !isSameScopedThreadRef(threadRef, routeThreadRef),
               branch: thread.branch ?? null,
               // An archived project is not a filter choice.
               projectFilter:
@@ -2818,6 +2820,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         switch (clicked.value) {
+          case "open-in-split":
+            useSplitViewStore.getState().openSplit(threadRef);
+            return;
           case "filter-by-project":
             if (threadProjectGroup) {
               setProjectScopeKeys(

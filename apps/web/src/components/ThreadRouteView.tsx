@@ -6,15 +6,22 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { T } from "gt-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import ChatView from "./ChatView";
 import { BackgroundThreadContext, HiddenThreadContext } from "./chat/backgroundThread";
+import { SplitViewPane } from "./chat/SplitViewPane";
 import { Button } from "./ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import {
+  SPLIT_VIEW_MIN_WIDTH_MEDIA_QUERY,
+  isSameScopedThreadRef,
+  useSplitViewStore,
+} from "../splitViewStore";
 import {
   useEnvironmentThreadRefs,
   useAnyEnvironmentHiding,
@@ -234,14 +241,97 @@ export function ThreadRouteView({
     );
   }
 
+  const splitViewOpen = useSplitViewStore((state) => state.isOpen);
+  const splitRatio = useSplitViewStore((state) => state.ratio);
+  const setSplitRatio = useSplitViewStore((state) => state.setRatio);
+  const resetSplitRatio = useSplitViewStore((state) => state.resetRatio);
+  const splitViewportWide = useMediaQuery(SPLIT_VIEW_MIN_WIDTH_MEDIA_QUERY);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const previousPrimaryRef = useRef<ScopedThreadRef | null>(null);
+
+  // If the user opens the secondary split thread in the main pane, move the previous main thread into the split pane.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps split panes disjoint when main route navigates to the secondary thread
+  useEffect(() => {
+    const previous = previousPrimaryRef.current;
+    previousPrimaryRef.current = serverThreadRef;
+    if (!serverThreadRef) return;
+    const { isOpen, secondaryThreadRef, setSecondaryThread } = useSplitViewStore.getState();
+    if (!isOpen || !isSameScopedThreadRef(serverThreadRef, secondaryThreadRef)) return;
+    if (previous && !isSameScopedThreadRef(previous, serverThreadRef)) {
+      setSecondaryThread(previous);
+    } else {
+      setSecondaryThread(null);
+    }
+  }, [serverThreadRef]);
+
+  const splitActive =
+    splitViewOpen && splitViewportWide && !background && target.kind === "server" && view !== null;
+
+  const handleSplitResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const container = splitContainerRef.current;
+    if (!container) return;
+    event.preventDefault();
+    const targetElement = event.currentTarget;
+    targetElement.setPointerCapture(event.pointerId);
+    const updateFromClientX = (clientX: number) => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      setSplitRatio((clientX - rect.left) / rect.width);
+    };
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateFromClientX(moveEvent.clientX);
+    };
+    const handlePointerUp = () => {
+      targetElement.removeEventListener("pointermove", handlePointerMove);
+      targetElement.removeEventListener("pointerup", handlePointerUp);
+      targetElement.removeEventListener("pointercancel", handlePointerUp);
+    };
+    targetElement.addEventListener("pointermove", handlePointerMove);
+    targetElement.addEventListener("pointerup", handlePointerUp);
+    targetElement.addEventListener("pointercancel", handlePointerUp);
+  };
+
   return (
     <SidebarInset
       className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh"
       inert={background}
     >
-      <BackgroundThreadContext value={background}>
-        <HiddenThreadContext value={background}>{view}</HiddenThreadContext>
-      </BackgroundThreadContext>
+      <div ref={splitContainerRef} className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          className={
+            splitActive
+              ? "flex h-full min-h-0 min-w-0 flex-none overflow-hidden"
+              : "flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+          }
+          style={splitActive ? { flexBasis: `${splitRatio * 100}%` } : undefined}
+        >
+          <BackgroundThreadContext value={background}>
+            <HiddenThreadContext value={background}>{view}</HiddenThreadContext>
+          </BackgroundThreadContext>
+        </div>
+        {splitActive ? (
+          <>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={handleSplitResizePointerDown}
+              onDoubleClick={resetSplitRatio}
+              className="group relative z-20 flex w-px shrink-0 cursor-col-resize items-stretch bg-border select-none"
+            >
+              <span
+                aria-hidden
+                className="absolute inset-y-0 -left-1 w-2.5 transition-colors group-hover:bg-primary/25"
+              />
+            </div>
+            <div
+              className="flex h-full min-h-0 min-w-0 flex-none overflow-hidden"
+              style={{ flexBasis: `${(1 - splitRatio) * 100}%` }}
+            >
+              <SplitViewPane primaryThreadRef={serverThreadRef} />
+            </div>
+          </>
+        ) : null}
+      </div>
       {background ? null : redirect}
     </SidebarInset>
   );

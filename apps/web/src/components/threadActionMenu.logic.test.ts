@@ -88,4 +88,15 @@ describe("buildThreadActionMenuItems", () => {
     const items = buildThreadActionMenuItems({ ...baseState, canRename: false });
     expect(items.filter((item) => item.disabled).map((item) => item.id)).toEqual(["rename"]);
   });
+
+  it("includes open-in-split when enabled and keeps it usable without operate scope", () => {
+    const items = buildThreadActionMenuItems({
+      ...baseState,
+      canOperate: false,
+      canOpenInSplit: true,
+    });
+    const openInSplit = items.find((item) => item.id === "open-in-split");
+    expect(openInSplit).toBeDefined();
+    expect(openInSplit?.disabled).toBeFalsy();
+  });
 });

@@ -5,6 +5,7 @@ import { msg } from "gt-react";
 import { m, type MessageResolver } from "../i18n/messages";
 
 export type ThreadActionMenuId =
+  | "open-in-split"
   | "find"
   | "new-thread-on-branch"
   | "filter-by-project"
@@ -97,6 +98,7 @@ export interface ThreadActionMenuState {
   readonly canOperate: boolean;
   /** Settle, snooze and their undo stay available until the host denies the operate scope. */
   readonly canTriage?: boolean;
+  readonly canOpenInSplit?: boolean;
   readonly canFind?: boolean;
   /** False where no inline title editor is rendered, such as sidebar search results. */
   readonly canRename?: boolean;
@@ -132,6 +134,7 @@ export interface ThreadActionMenuState {
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
+    "open-in-split",
     "find",
     "new-thread-on-branch",
     "project-settings",
@@ -170,6 +173,15 @@ export function buildThreadActionMenuItems(
   resolve: MessageResolver = m,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
+    ...(state.canOpenInSplit
+      ? [
+          {
+            id: "open-in-split" as const,
+            label: resolve(msg("Open in split view")),
+            icon: "columns-2",
+          },
+        ]
+      : []),
     ...(state.canFind
       ? [{ id: "find" as const, label: resolve(msg("Find in thread")), icon: "text-search" }]
       : []),

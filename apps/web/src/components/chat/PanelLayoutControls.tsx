@@ -1,4 +1,5 @@
 import {
+  Columns2Icon,
   PanelBottomIcon,
   PanelRightIcon,
   SquareMenuIcon,
@@ -20,9 +21,12 @@ import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 const THREAD_PANEL_HEADER_INSET_PX = 12;
 
 export interface PanelLayoutControlsProps {
+  showSplitViewControl?: boolean;
   showThreadPanelControl?: boolean;
   showTerminalControl?: boolean;
   showRightPanelControl?: boolean;
+  splitViewOpen?: boolean;
+  onToggleSplitView?: () => void;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalShortcutLabel: string | null;
@@ -40,9 +44,12 @@ export interface PanelLayoutControlsProps {
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
+  showSplitViewControl = false,
   showThreadPanelControl = true,
   showTerminalControl = true,
   showRightPanelControl = true,
+  splitViewOpen = false,
+  onToggleSplitView,
   terminalAvailable,
   terminalOpen,
   terminalShortcutLabel,
@@ -94,6 +101,25 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showSplitViewControl && onToggleSplitView ? (
+        <SharedTooltipTrigger
+          render={<span className="hidden shrink-0 lg:flex" />}
+          label={gt("Toggle split view")}
+          side="bottom"
+        >
+          <Toggle
+            className="shrink-0 [-webkit-app-region:no-drag]"
+            pressed={splitViewOpen}
+            onPressedChange={onToggleSplitView}
+            aria-label={gt("Toggle split view")}
+            data-split-view-toggle
+            variant="ghost"
+            size="sm"
+          >
+            <Columns2Icon className="size-4" />
+          </Toggle>
+        </SharedTooltipTrigger>
+      ) : null}
       {showThreadPanelControl ? threadPanelControl : null}
       {showTerminalControl ? (
         <SharedTooltipTrigger
@@ -197,7 +223,12 @@ export function ThreadPanelHeaderControl(props: PanelLayoutControlsProps) {
       )}
       data-workspace-titlebar-controls
     >
-      <PanelLayoutControls {...props} showTerminalControl={false} showRightPanelControl={false} />
+      <PanelLayoutControls
+        {...props}
+        showSplitViewControl={false}
+        showTerminalControl={false}
+        showRightPanelControl={false}
+      />
     </div>
   );
 }

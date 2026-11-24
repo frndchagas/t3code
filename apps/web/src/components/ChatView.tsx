@@ -194,6 +194,7 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "../rightPanelStore";
+import { useSplitViewStore } from "../splitViewStore";
 import { isPreviewSupportedInRuntime, useThreadPreviewState } from "../previewStateStore";
 import { previewRuntimeTabId } from "../browser/previewRuntimeTabId";
 import {
@@ -3480,6 +3481,10 @@ export default function ChatView(props: ChatViewProps) {
     (folders: Parameters<ChatComposerHandle["addDroppedFolders"]>[0]) =>
       composerRef.current?.addDroppedFolders(folders),
   );
+  const splitViewOpen = useSplitViewStore((state) => state.isOpen);
+  const toggleSplitViewStable = useStableCallback(() => {
+    useSplitViewStore.getState().toggleSplit();
+  });
   // Above the early return, where React Compiler can cache it for the side chat pane.
   const sideChatParentPanel = {
     hostRef: scopeThreadRef(environmentId, threadId),
@@ -3546,6 +3551,9 @@ export default function ChatView(props: ChatViewProps) {
     />
   ) : null;
   const panelToggleControlProps = {
+    showSplitViewControl: !embedded && isServerThread,
+    splitViewOpen,
+    onToggleSplitView: toggleSplitViewStable,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
